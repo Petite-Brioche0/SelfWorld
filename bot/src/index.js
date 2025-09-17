@@ -57,7 +57,7 @@ const client = new Client({
 		// Services
 		const pool = db.getPool();
 		const services = {
-			zone: new ZoneService(client, pool, process.env.OWNER_ID),
+			zone: new ZoneService(client, pool, process.env.OWNER_ID, logger),
 			policy: new PolicyService(client, pool),
 			activity: new ActivityService(client, pool),
 			anon: new AnonService(client, pool),

@@ -6,6 +6,8 @@ module.exports = {
 		const { logger, services } = client.context;
 		logger.info({ tag: client.user.tag }, 'Bot ready');
 
+		await services.zone.cleanupOrphans().catch(err => logger.error({ err }, 'cleanupOrphans failed'));
+
 		// Schedule periodic tasks
 		// Sweep expired temp groups hourly
 		setInterval(() => {

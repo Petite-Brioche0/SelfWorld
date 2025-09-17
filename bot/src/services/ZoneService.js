@@ -1,12 +1,12 @@
-
 const { ChannelType, EmbedBuilder } = require('discord.js');
 const { applyZoneOverwrites } = require('../utils/permissions');
 
 class ZoneService {
-	constructor(client, db, ownerId) {
+	constructor(client, db, ownerId, logger) {
 		this.client = client;
 		this.db = db;
 		this.ownerId = ownerId;
+		this.logger = logger;
 	}
 
 	#slugify(name) {
@@ -43,17 +43,36 @@ class ZoneService {
 
 		// Persist
 		const [res] = await this.db.query(
-			`INSERT INTO zones (guild_id, name, slug, owner_user_id, category_id, text_panel_id, text_reception_id, text_general_id, text_anon_id, voice_id, role_owner_id, role_member_id, role_muted_id, policy, created_at)
+			`INSERT INTO zones (guild_id, name, slug, owner_user_id, category_id, text_panel_id, text_reception_id,
+			text_general_id, text_anon_id, voice_id, role_owner_id, role_member_id, role_muted_id, policy, created_at)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-			[guild.id, name, slug, ownerUserId, category.id, panel.id, reception.id, general.id, anon.id, voice.id, roleOwner.id, roleMember.id, roleMuted.id, policy]
+			[
+				guild.id,
+				name,
+				slug,
+				ownerUserId,
+				category.id,
+				panel.id,
+				reception.id,
+				general.id,
+				anon.id,
+				voice.id,
+				roleOwner.id,
+				roleMember.id,
+				roleMuted.id,
+				policy
+			]
 		);
 		const zoneId = res.insertId;
 
-		await this.db.query(`INSERT INTO anon_channels (zone_id, source_channel_id) VALUES (?, ?)`, [zoneId, anon.id]);
+		await this.db.query(
+			`INSERT INTO anon_channels (zone_id, source_channel_id, webhook_id, webhook_token) VALUES (?, ?, ?, ?)`,
+			[zoneId, anon.id, null, null]
+		);
 
 		// Grant roles
-		const member = await guild.members.fetch(ownerUserId).catch(()=>null);
-		if (member) await member.roles.add([roleOwner, roleMember]).catch(()=>{});
+		const member = await guild.members.fetch(ownerUserId).catch(() => null);
+		if (member) await member.roles.add([roleOwner, roleMember]).catch(() => {});
 
 		// Panel
 		const embed = new EmbedBuilder()
@@ -64,9 +83,104 @@ class ZoneService {
 				{ name: 'Owner', value: `<@${ownerUserId}>`, inline: true }
 			)
 			.setTimestamp();
-		await panel.send({ content: `<@${ownerUserId}>`, embeds: [embed] }).catch(()=>{});
+		await panel.send({ content: `<@${ownerUserId}>`, embeds: [embed] }).catch(() => {});
 
 		return { zoneId, slug };
+	}
+
+	async listZones(guildId) {
+		const [rows] = await this.db.query(
+			`SELECT id, name, slug, owner_user_id, policy, created_at
+			 FROM zones
+			 WHERE guild_id = ?
+			 ORDER BY created_at DESC, id DESC`,
+			[guildId]
+		);
+		return rows;
+	}
+
+	async #safeDeleteChannel(guild, channelId, reason) {
+		if (!channelId) return;
+		const channel = await guild.channels.fetch(channelId).catch(() => null);
+		if (!channel) return;
+		await channel.delete(reason).catch((err) => {
+			this.logger?.warn({ err, channelId }, 'Failed to delete zone channel');
+		});
+	}
+
+	async #safeDeleteRole(guild, roleId, reason) {
+		if (!roleId) return;
+		const role = await guild.roles.fetch(roleId).catch(() => null);
+		if (!role) return;
+		await role.delete(reason).catch((err) => {
+			this.logger?.warn({ err, roleId }, 'Failed to delete zone role');
+		});
+	}
+
+	async #deleteZoneRecords(zoneId) {
+		const queries = [
+			['DELETE FROM anon_channels WHERE zone_id = ?', [zoneId]],
+			['DELETE FROM zone_members WHERE zone_id = ?', [zoneId]],
+			['DELETE FROM join_codes WHERE zone_id = ?', [zoneId]],
+			['DELETE FROM join_requests WHERE zone_id = ?', [zoneId]],
+			['DELETE FROM zone_activity WHERE zone_id = ?', [zoneId]],
+			['DELETE FROM event_participants WHERE zone_id = ?', [zoneId]],
+			['DELETE FROM anon_logs WHERE source_zone_id = ?', [zoneId]]
+		];
+
+		for (const [sql, params] of queries) {
+			await this.db.query(sql, params);
+		}
+
+		await this.db.query('DELETE FROM zones WHERE id = ?', [zoneId]);
+	}
+
+	async deleteZone(guild, zoneId) {
+		const [rows] = await this.db.query('SELECT * FROM zones WHERE id = ? AND guild_id = ?', [zoneId, guild.id]);
+		const zone = rows?.[0];
+		if (!zone) {
+			return { success: false, reason: 'Zone introuvable.' };
+		}
+
+		const reason = `Zone #${zoneId} deletion requested by owner.`;
+
+		await this.#safeDeleteChannel(guild, zone.category_id, reason);
+		await this.#safeDeleteChannel(guild, zone.text_panel_id, reason);
+		await this.#safeDeleteChannel(guild, zone.text_reception_id, reason);
+		await this.#safeDeleteChannel(guild, zone.text_general_id, reason);
+		await this.#safeDeleteChannel(guild, zone.text_anon_id, reason);
+		await this.#safeDeleteChannel(guild, zone.voice_id, reason);
+
+		await this.#safeDeleteRole(guild, zone.role_owner_id, reason);
+		await this.#safeDeleteRole(guild, zone.role_member_id, reason);
+		await this.#safeDeleteRole(guild, zone.role_muted_id, reason);
+
+		await this.#deleteZoneRecords(zoneId);
+
+		this.logger?.info({ zoneId }, 'Zone deleted');
+
+		return { success: true, zone };
+	}
+
+	async cleanupOrphans() {
+		const [rows] = await this.db.query('SELECT id, guild_id, category_id FROM zones');
+		for (const zone of rows) {
+			const guild = await this.client.guilds.fetch(zone.guild_id).catch(() => null);
+			if (!guild) {
+				await this.#deleteZoneRecords(zone.id);
+				this.logger?.warn({ zoneId: zone.id, guildId: zone.guild_id }, 'Cleaned zone for missing guild');
+				continue;
+			}
+
+			const category = await guild.channels.fetch(zone.category_id).catch(() => null);
+			if (!category) {
+				const res = await this.deleteZone(guild, zone.id);
+				if (!res.success) {
+					await this.#deleteZoneRecords(zone.id);
+				}
+				this.logger?.warn({ zoneId: zone.id }, 'Cleaned orphan zone (missing category)');
+			}
+		}
 	}
 }
 
