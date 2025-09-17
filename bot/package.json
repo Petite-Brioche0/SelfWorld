@@ -16,7 +16,7 @@
 		"discord.js": "^14.15.3",
 		"dotenv": "^16.4.5",
 		"mysql2": "^3.11.5",
-		"pino": "^9.4.0",
+		"pino": "^9.9.5",
 		"pino-pretty": "^11.2.2",
 		"rate-limiter-flexible": "^5.0.2",
 		"sanitize-filename": "^1.6.3",
