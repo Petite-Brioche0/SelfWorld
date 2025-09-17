@@ -1,0 +1,23 @@
+module.exports = {
+	command: 'zone',
+	subCommandGroup: 'role',
+	subCommand: 'create',
+	description: 'Créer un rôle local',
+	build(builder) {
+		builder
+		.addStringOption((option) => option.setName('slug').setDescription('Identifiant de la zone').setRequired(true))
+		.addStringOption((option) => option.setName('name').setDescription('Nom du rôle').setRequired(true));
+	},
+	async execute(interaction, { services }) {
+		const slug = interaction.options.getString('slug', true);
+		const name = interaction.options.getString('name', true).slice(0, 100);
+		const zone = await services.zone.getZoneBySlug(interaction.guild.id, slug);
+		if (!zone) {
+			await interaction.reply({ content: 'Zone introuvable.', ephemeral: true });
+			return;
+		}
+		await services.zone.ensureZoneOwner(zone.id, interaction.user.id);
+		const role = await services.zone.createRole(zone.id, name);
+		await interaction.reply({ content: `Rôle ${role} créé.`, ephemeral: true });
+	}
+};
