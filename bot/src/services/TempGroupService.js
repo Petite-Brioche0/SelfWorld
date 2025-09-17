@@ -1,96 +1,80 @@
-const {
-	ModalBuilder,
-	TextInputBuilder,
-	TextInputStyle,
-	ActionRowBuilder,
-	ChannelType,
-	PermissionFlagsBits
-} = require('discord.js');
+
+const { ChannelType, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 class TempGroupService {
-	constructor(client, pool, zoneService, activityService, logger) {
+	constructor(client, db) {
 		this.client = client;
-		this.pool = pool;
-		this.zoneService = zoneService;
-		this.activityService = activityService;
-		this.logger = logger;
-		this.scheduleCleanup();
+		this.db = db;
 	}
 
-	scheduleCleanup() {
-		setInterval(() => {
-			this.autoArchive().catch((error) => this.logger.error({ err: error }, 'Temp group cleanup failed'));
-		}, 60 * 60 * 1000).unref();
+	async createTempGroup(guild, name, userIds) {
+		const category = await guild.channels.create({ name, type: ChannelType.GuildCategory });
+		const text = await guild.channels.create({ name: 'discussion', type: ChannelType.GuildText, parent: category.id });
+		const voice = await guild.channels.create({ name: 'vocal', type: ChannelType.GuildVoice, parent: category.id });
+
+		const [res] = await this.db.query('INSERT INTO temp_groups (name, category_id, archived, created_at, expires_at) VALUES (?, ?, 0, NOW(), DATE_ADD(NOW(), INTERVAL 72 HOUR))',
+			[name, category.id]);
+		const id = res.insertId;
+
+		for (const uid of userIds) {
+			await this.db.query('INSERT INTO temp_group_members (temp_group_id, user_id) VALUES (?, ?)', [id, uid]);
+		}
+
+		const row = new ActionRowBuilder().addComponents(
+			new ButtonBuilder().setCustomId(`temp:delete:${id}`).setStyle(ButtonStyle.Danger).setLabel('Supprimer'),
+			new ButtonBuilder().setCustomId(`temp:extend:${id}`).setStyle(ButtonStyle.Secondary).setLabel('Prolonger')
+		);
+
+		const e = new EmbedBuilder().setTitle('Groupe temporaire').setDescription('Aucune activité → archivage auto après 72h.').setTimestamp();
+		await text.send({ embeds: [e], components: [row] }).catch(()=>{});
+
+		return { id, categoryId: category.id, textId: text.id, voiceId: voice.id };
 	}
 
-	async handleComponent(interaction) {
-		if (interaction.customId === 'temp:request') {
-			const modal = new ModalBuilder()
-			.setCustomId('temp:create')
-			.setTitle('Créer un groupe temporaire');
-			modal.addComponents(
-				new ActionRowBuilder().addComponents(
-					new TextInputBuilder()
-					.setCustomId('temp-name')
-					.setLabel('Nom du groupe')
-					.setMaxLength(100)
-					.setStyle(TextInputStyle.Short)
-					.setRequired(true)
-				),
-				new ActionRowBuilder().addComponents(
-					new TextInputBuilder()
-					.setCustomId('temp-members')
-					.setLabel('Membres (IDs séparés par des virgules)')
-					.setStyle(TextInputStyle.Paragraph)
-				)
-			);
-			await interaction.showModal(modal);
+	async handleArchiveButtons(interaction) {
+		const parts = interaction.customId.split(':');
+		const action = parts[1];
+		const groupId = Number(parts[2]);
+		const [rows] = await this.db.query('SELECT * FROM temp_groups WHERE id=?', [groupId]);
+		const g = rows?.[0];
+		if (!g) return interaction.reply({ content: 'Groupe introuvable.', ephemeral: true });
+
+		const text = await this.client.channels.fetch(g.category_id).catch(()=>null);
+		if (!text) return interaction.reply({ content: 'Catégorie introuvable.', ephemeral: true });
+
+		if (action === 'delete') {
+			await this._deleteGroup(g);
+			return interaction.reply({ content: 'Groupe supprimé.', ephemeral: true });
+		}
+		if (action === 'extend') {
+			await this.db.query('UPDATE temp_groups SET expires_at = DATE_ADD(NOW(), INTERVAL 72 HOUR) WHERE id=?', [groupId]);
+			return interaction.reply({ content: 'Groupe prolongé de 72h.', ephemeral: true });
 		}
 	}
 
-	async handleModal(interaction) {
-		if (interaction.customId !== 'temp:create') {
-			return;
-		}
-		const guild = interaction.guild;
-		const name = interaction.fields.getTextInputValue('temp-name').slice(0, 100);
-		const memberInput = interaction.fields.getTextInputValue('temp-members');
-		const members = memberInput.split(',').map((value) => value.trim()).filter(Boolean);
-		members.push(interaction.user.id);
-		const uniqueMembers = [...new Set(members)];
-		const category = await guild.channels.create({ name: `temp-${Date.now()}`, type: ChannelType.GuildCategory });
-		const textChannel = await guild.channels.create({ name: 'salon-temp', type: ChannelType.GuildText, parent: category });
-		const voiceChannel = await guild.channels.create({ name: 'vocal-temp', type: ChannelType.GuildVoice, parent: category });
-		const overwrites = [
-			{ id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-			...uniqueMembers.map((userId) => ({
-				id: userId,
-				allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak]
-			}))
-		];
-		await category.permissionOverwrites.set(overwrites);
-		await textChannel.permissionOverwrites.set(overwrites);
-		await voiceChannel.permissionOverwrites.set(overwrites);
-		const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
-		const [result] = await this.pool.query('INSERT INTO temp_groups (name, category_id, archived, expires_at) VALUES (?, ?, ?, ?)', [name, category.id, false, expiresAt]);
-		const groupId = result.insertId;
-		for (const memberId of uniqueMembers) {
-			await this.pool.query('INSERT INTO temp_group_members (temp_group_id, user_id) VALUES (?, ?)', [groupId, memberId]);
-		}
-		await interaction.reply({ content: 'Groupe temporaire créé.', ephemeral: true });
-		this.logger.info({ groupId }, 'Temp group created');
+	async _deleteGroup(g) {
+		const cat = await this.client.channels.fetch(g.category_id).catch(()=>null);
+		if (cat) await cat.delete().catch(()=>{});
+		await this.db.query('DELETE FROM temp_group_members WHERE temp_group_id=?', [g.id]);
+		await this.db.query('DELETE FROM temp_groups WHERE id=?', [g.id]);
 	}
 
-	async autoArchive() {
-		const [groups] = await this.pool.query('SELECT * FROM temp_groups WHERE archived = FALSE AND expires_at < NOW()');
-		for (const group of groups) {
-			await this.pool.query('UPDATE temp_groups SET archived = TRUE WHERE id = ?', [group.id]);
-			const category = await this.client.channels.fetch(group.category_id).catch(() => null);
-			if (category) {
-				await category.permissionOverwrites.set([]);
+	/** Periodic check (call hourly on ready) */
+	async sweepExpired() {
+		const [rows] = await this.db.query('SELECT * FROM temp_groups WHERE archived=0 AND expires_at <= NOW()');
+		for (const g of rows) {
+			// Archive by locking category (convert to read-only) instead of deleting
+			const cat = await this.client.channels.fetch(g.category_id).catch(()=>null);
+			if (cat) {
+				for (const ch of cat.children.cache.values()) {
+					if (ch.type === 0) { // text
+						await ch.permissionOverwrites.edit(ch.guild.roles.everyone, { SendMessages: false }).catch(()=>{});
+					}
+				}
 			}
+			await this.db.query('UPDATE temp_groups SET archived=1 WHERE id=?', [g.id]);
 		}
 	}
 }
 
-module.exports = TempGroupService;
+module.exports = { TempGroupService };

@@ -1,55 +1,35 @@
+
 class ActivityService {
-	constructor(client, pool, zoneService, logger) {
+	constructor(client, db) {
 		this.client = client;
-		this.pool = pool;
-		this.zoneService = zoneService;
-		this.logger = logger;
-		this.buffer = new Map();
+		this.db = db;
 	}
 
-	start() {
-		setInterval(() => this.flush().catch((error) => this.logger.error({ err: error }, 'Activity flush failed')), 5 * 60 * 1000).unref();
+	async addMessage(zoneId) {
+		await this.db.query('INSERT INTO zone_activity (zone_id, day, msgs, reacts, voice_minutes, event_points) VALUES (?, CURRENT_DATE(), 1, 0, 0, 0) ON DUPLICATE KEY UPDATE msgs = msgs + 1', [zoneId]);
 	}
 
-	recordMessage(zoneId) {
-		this.increment(zoneId, 'msgs');
+	async addReaction(zoneId) {
+		await this.db.query('INSERT INTO zone_activity (zone_id, day, msgs, reacts, voice_minutes, event_points) VALUES (?, CURRENT_DATE(), 0, 1, 0, 0) ON DUPLICATE KEY UPDATE reacts = reacts + 1', [zoneId]);
 	}
 
-	recordReaction(zoneId) {
-		this.increment(zoneId, 'reacts');
+	async addVoice(zoneId, minutes) {
+		await this.db.query('INSERT INTO zone_activity (zone_id, day, msgs, reacts, voice_minutes, event_points) VALUES (?, CURRENT_DATE(), 0, 0, ?, 0) ON DUPLICATE KEY UPDATE voice_minutes = voice_minutes + VALUES(voice_minutes)', [zoneId, minutes]);
 	}
 
-	recordVoice(zoneId, minutes) {
-		this.increment(zoneId, 'voice_minutes', minutes);
-	}
-
-	recordEventPoint(zoneId, points = 1) {
-		this.increment(zoneId, 'event_points', points);
-	}
-
-	increment(zoneId, key, value = 1) {
-		if (!this.buffer.has(zoneId)) {
-			this.buffer.set(zoneId, { msgs: 0, reacts: 0, voice_minutes: 0, event_points: 0 });
-		}
-		const entry = this.buffer.get(zoneId);
-		entry[key] += value;
-	}
-
-	async flush() {
-		const entries = Array.from(this.buffer.entries());
-		if (!entries.length) {
-			return;
-		}
-		this.buffer.clear();
-		for (const [zoneId, stats] of entries) {
-			await this.pool.query(
-				`INSERT INTO zone_activity (zone_id, day, msgs, reacts, voice_minutes, event_points)
-				VALUES (?, CURRENT_DATE(), ?, ?, ?, ?)
-				ON DUPLICATE KEY UPDATE msgs = msgs + VALUES(msgs), reacts = reacts + VALUES(reacts), voice_minutes = voice_minutes + VALUES(voice_minutes), event_points = event_points + VALUES(event_points)`,
-				[zoneId, stats.msgs, stats.reacts, stats.voice_minutes, stats.event_points]
-			);
+	/** Post low-activity alert directly in #reception (thresholds are simplistic here) */
+	async postLowActivityAlerts() {
+		// Example threshold: no msgs in last 14 days
+		const [zones] = await this.db.query('SELECT id, text_reception_id FROM zones');
+		for (const z of zones) {
+			const [rows] = await this.db.query('SELECT SUM(msgs) AS s FROM zone_activity WHERE zone_id=? AND day >= DATE_SUB(CURRENT_DATE(), INTERVAL 14 DAY)', [z.id]);
+			const s = rows?.[0]?.s || 0;
+			if (s === 0) {
+				const ch = await this.client.channels.fetch(z.text_reception_id).catch(()=>null);
+				if (ch) ch.send('⚠️ Faible activité détectée (14 jours). Merci de relancer la zone.').catch(()=>{});
+			}
 		}
 	}
 }
 
-module.exports = ActivityService;
+module.exports = { ActivityService };

@@ -1,73 +1,55 @@
-const { EmbedBuilder } = require('discord.js');
+
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, ChannelType } = require('discord.js');
 
 class EventService {
-	constructor(client, pool, zoneService, activityService, logger) {
+	constructor(client, db) {
 		this.client = client;
-		this.pool = pool;
-		this.zoneService = zoneService;
-		this.activityService = activityService;
-		this.logger = logger;
+		this.db = db;
 	}
 
-	async handleComponent(interaction) {
-		const parts = interaction.customId.split(':');
-		const action = parts[1];
-		if (action !== 'join') {
-			await interaction.reply({ content: 'Action évènement inconnue.', ephemeral: true });
-			return;
+	async announceToAllZones(eventId, title, description) {
+		const [zones] = await this.db.query('SELECT id, text_reception_id FROM zones');
+		for (const z of zones) {
+			const ch = await this.client.channels.fetch(z.text_reception_id).catch(()=>null);
+			if (!ch) continue;
+			const row = new ActionRowBuilder().addComponents(
+				new ButtonBuilder().setCustomId(`event:join:${eventId}:${z.id}`).setStyle(ButtonStyle.Primary).setLabel('Rejoindre')
+			);
+			const e = new EmbedBuilder().setTitle(title).setDescription(description).setFooter({ text: `Zone ${z.id}` });
+			await ch.send({ embeds: [e], components: [row] }).catch(()=>{});
 		}
+	}
+
+	async handleJoinButton(interaction) {
+		const parts = interaction.customId.split(':');
+		if (parts[0] !== 'event' || parts[1] !== 'join') return;
 		const eventId = Number(parts[2]);
 		const zoneId = Number(parts[3]);
-		await this.joinEvent(eventId, zoneId, interaction.user.id);
-		await interaction.reply({ content: 'Participation enregistrée !', ephemeral: true });
+
+		// Check if already joined from another zone
+		const [rows] = await this.db.query('SELECT zone_id FROM event_participants WHERE event_id=? AND user_id=?', [eventId, interaction.user.id]);
+		if (rows.length && rows[0].zone_id !== zoneId) {
+			// Ask switch team
+			return interaction.reply({ content: 'Tu es déjà inscrit via une autre zone. Veux-tu changer de team ? (refais le clic pour confirmer)', ephemeral: true });
+		}
+
+		await this.db.query('REPLACE INTO event_participants (event_id, user_id, zone_id, joined_at) VALUES (?, ?, ?, NOW())', [eventId, interaction.user.id, zoneId]);
+		return interaction.reply({ content: 'Inscription enregistrée pour cet événement.', ephemeral: true });
 	}
 
-	async joinEvent(eventIdOrName, zoneId, userId) {
-		let eventId = eventIdOrName;
-		let event = null;
-		if (Number.isNaN(Number(eventIdOrName))) {
-			const [rows] = await this.pool.query('SELECT * FROM events WHERE name = ? ORDER BY id DESC LIMIT 1', [eventIdOrName]);
-			if (!rows[0]) {
-				const [insert] = await this.pool.query('INSERT INTO events (name, status) VALUES (?, ?)', [eventIdOrName, 'draft']);
-				eventId = insert.insertId;
-				event = { id: eventId, name: eventIdOrName };
-			} else {
-				event = rows[0];
-				eventId = event.id;
-			}
-		} else {
-			eventId = Number(eventIdOrName);
-			const [rows] = await this.pool.query('SELECT * FROM events WHERE id = ?', [eventId]);
-			event = rows[0];
-		}
-		if (!event) {
-			throw new Error('Évènement introuvable');
-		}
-		const [existing] = await this.pool.query('SELECT * FROM event_participants WHERE event_id = ? AND user_id = ?', [eventId, userId]);
-		if (existing[0]) {
-			await this.pool.query('UPDATE event_participants SET zone_id = ?, joined_at = NOW() WHERE event_id = ? AND user_id = ?', [zoneId, eventId, userId]);
-		} else {
-			await this.pool.query('INSERT INTO event_participants (event_id, user_id, zone_id) VALUES (?, ?, ?)', [eventId, userId, zoneId]);
-		}
-		this.activityService.recordEventPoint(zoneId);
-	}
+	async startEvent(guild, eventId, name='event') {
+		// Create category & channels
+		const category = await guild.channels.create({ name: name, type: ChannelType.GuildCategory });
+		const text = await guild.channels.create({ name: 'briefing', type: ChannelType.GuildText, parent: category.id });
+		await guild.channels.create({ name: 'scores', type: ChannelType.GuildText, parent: category.id });
+		await guild.channels.create({ name: 'vocal-a', type: ChannelType.GuildVoice, parent: category.id });
+		await guild.channels.create({ name: 'vocal-b', type: ChannelType.GuildVoice, parent: category.id });
 
-	async announceInZone(zoneId, event) {
-		const zone = await this.zoneService.getZoneById(zoneId);
-		if (!zone) {
-			return;
-		}
-		const guild = await this.client.guilds.fetch(zone.guild_id);
-		const reception = guild.channels.cache.get(zone.text_reception_id);
-		if (!reception) {
-			return;
-		}
-		const embed = new EmbedBuilder()
-		.setTitle(`Nouvel évènement : ${event.name}`)
-		.setDescription("Rejoignez l'évènement avec `/public event join`.")
-		.setTimestamp();
-		await reception.send({ embeds: [embed] });
+		// No auto-move here (permissions can be tricky) — prepare roles or invites as needed.
+		await this.db.query('UPDATE events SET status="running" WHERE id=?', [eventId]);
+		await text.send('Événement démarré.').catch(()=>{});
+		return { categoryId: category.id };
 	}
 }
 
-module.exports = EventService;
+module.exports = { EventService };

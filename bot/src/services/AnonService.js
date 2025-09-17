@@ -1,101 +1,111 @@
-const { WebhookClient, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
-const { pseudonym, hashToBase64 } = require('../utils/ids');
+const crypto = require('crypto');
+const { WebhookClient, EmbedBuilder } = require('discord.js');
 
 class AnonService {
-	constructor(client, pool, zoneService, activityService, logger) {
+	constructor(client, db) {
 		this.client = client;
-		this.pool = pool;
-		this.zoneService = zoneService;
-		this.activityService = activityService;
-		this.logger = logger;
-		this.salt = hashToBase64(`${Date.now()}`);
-		this.cooldown = new Map();
+		this.db = db;
 	}
 
-	loadSaltScheduler() {
-		setInterval(() => {
-			this.salt = hashToBase64(`${Date.now()}`);
-			this.logger.info('Anon salt rotated');
-		}, 24 * 60 * 60 * 1000).unref();
+	#todaySalt() {
+		const d = new Date();
+		const key = `${d.getUTCFullYear()}-${d.getUTCMonth()+1}-${d.getUTCDate()}`;
+		return crypto.createHash('sha256').update('daily-salt::' + key).digest('hex').slice(0, 16);
 	}
 
-	getDailySalt() {
-		return this.salt;
+	#anonName(userId, targetZoneId) {
+		const seed = `${userId}:${targetZoneId}:${this.#todaySalt()}`;
+		const h = crypto.createHash('sha256').update(seed).digest('hex').slice(0, 6);
+		return `Anonyme-${h}`;
 	}
 
+	async #getAnonAdminChannelId(guildId) {
+		const [rows] = await this.db.query('SELECT anon_admin_channel_id FROM settings WHERE guild_id = ?', [guildId]);
+		return rows?.[0]?.anon_admin_channel_id || null;
+	}
+
+	async #findZoneByAnonChannel(channelId) {
+		const [rows] = await this.db.query('SELECT zone_id FROM anon_channels WHERE source_channel_id = ?', [channelId]);
+		return rows?.[0]?.zone_id || null;
+	}
+
+	async #targetsExcept(zoneId) {
+		const [rows] = await this.db.query('SELECT zone_id, source_channel_id, webhook_id, webhook_token FROM anon_channels WHERE zone_id <> ?', [zoneId]);
+		return rows;
+	}
+
+	async #ensureWebhook(row) {
+		if (row.webhook_id && row.webhook_token) return row;
+		const channel = await this.client.channels.fetch(row.source_channel_id).catch(()=>null);
+		if (!channel) return row;
+		const hook = await channel.createWebhook({ name: 'Anon Relay' });
+		await this.db.query('UPDATE anon_channels SET webhook_id=?, webhook_token=? WHERE zone_id=?', [hook.id, hook.token, row.zone_id]);
+		row.webhook_id = hook.id;
+		row.webhook_token = hook.token;
+		return row;
+	}
+
+	#sanitize(content) {
+		if (!content) return '';
+		return content
+			.replace(/@everyone/gi, '@\u200beveryone')
+			.replace(/@here/gi, '@\u200bhere');
+	}
+
+	/**
+	 * Handle a user message posted in #anon-agora of a zone.
+	 * - delete original
+	 * - fan-out anonymized to all other zones' #anon-agora via webhook
+	 * - log raw in admin-only channel
+	 */
 	async handleMessage(message) {
-		const zone = await this.zoneService.getZoneByChannelId(message.channel.id);
-		if (!zone || zone.text_anon_id !== message.channel.id) {
-			return;
-		}
-		if (!message.deletable) {
-			throw new Error('Impossible de supprimer le message initial pour anonymisation.');
-		}
-		const rawContent = message.content;
-		const sanitized = message.cleanContent.replace(/@(everyone|here)/gu, '').trim();
-		await message.delete().catch(() => undefined);
-		const salt = this.getDailySalt();
-		const alias = pseudonym(message.author.id, zone.id, salt);
-		const payload = sanitized || '*Message sans texte*';
+		if (!message || !message.guild || message.author.bot) return;
 
-		await this.pool.query('INSERT INTO anon_logs (guild_id, source_zone_id, author_id, content) VALUES (?, ?, ?, ?)', [message.guild.id, zone.id, message.author.id, rawContent]);
-		await this.forwardToAdmin(zone.guild_id, alias, rawContent, message.attachments);
-		await this.broadcastToZones(zone, alias, payload);
-		this.activityService.recordMessage(zone.id);
-	}
+		const zoneId = await this.#findZoneByAnonChannel(message.channelId);
+		if (!zoneId) return; // not an anon channel managed by DB
 
-	async broadcastToZones(sourceZone, alias, content) {
-		const [rows] = await this.pool.query('SELECT z.id, a.webhook_id, a.webhook_token FROM zones z JOIN anon_channels a ON a.zone_id = z.id WHERE z.guild_id = ?', [sourceZone.guild_id]);
-		for (const row of rows) {
-			if (row.id === sourceZone.id) {
-				continue;
+		// Log raw to admin
+		const adminChannelId = await this.#getAnonAdminChannelId(message.guild.id);
+		if (adminChannelId) {
+			const adminCh = await this.client.channels.fetch(adminChannelId).catch(()=>null);
+			if (adminCh) {
+				const e = new EmbedBuilder()
+					.setTitle('Anon log (raw)')
+					.setDescription(this.#sanitize(message.content || '(no text)'))
+					.addFields(
+						{ name: 'Author', value: `${message.author.tag} (${message.author.id})` },
+						{ name: 'From Zone', value: String(zoneId) },
+						{ name: 'Channel', value: `<#${message.channelId}>` },
+					)
+					.setTimestamp();
+				adminCh.send({ embeds: [e] }).catch(()=>{});
 			}
-			if (!row.webhook_id || !row.webhook_token) {
-				continue;
-			}
-			const webhook = new WebhookClient({ id: row.webhook_id, token: row.webhook_token });
-			await webhook.send({
-				username: alias,
-				content,
+		}
+
+		// Delete original
+		await message.delete().catch(()=>{});
+
+		// Prepare fan-out
+		const targets = await this.#targetsExcept(zoneId);
+		const files = message.attachments?.size ? [...message.attachments.values()].map(a => a.url) : [];
+
+		for (const row of targets) {
+			const hooked = await this.#ensureWebhook(row);
+			if (!hooked.webhook_id || !hooked.webhook_token) continue;
+
+			const hook = new WebhookClient({ id: hooked.webhook_id, token: hooked.webhook_token });
+			const name = this.#anonName(message.author.id, row.zone_id);
+			const content = this.#sanitize(message.content || '');
+
+			await hook.send({
+				username: name,
+				content: content.length ? content : undefined,
+				files,
 				allowedMentions: { parse: [] }
-			}).catch((error) => this.logger.error({ err: error }, 'Failed to relay anonymous message'));
+			}).catch(()=>{});
 		}
-	}
-
-	async forwardToAdmin(guildId, alias, rawContent, attachments) {
-		const settings = await this.zoneService.getSettings(guildId);
-		if (!settings?.anon_admin_channel_id) {
-			return;
-		}
-		const channel = await this.client.channels.fetch(settings.anon_admin_channel_id);
-		if (!channel) {
-			return;
-		}
-		const embed = new EmbedBuilder()
-		.setTitle('Log anonyme brut')
-		.setDescription(rawContent || '*Sans contenu*')
-		.addFields({ name: 'Alias', value: alias })
-		.setTimestamp();
-		await channel.send({ embeds: [embed], files: [...attachments.values()].slice(0, 3) });
-	}
-
-	async setLogChannel(guildId, channelId) {
-		await this.pool.query('UPDATE settings SET anon_admin_channel_id = ? WHERE guild_id = ?', [channelId, guildId]);
-	}
-
-	async presentOptions(interaction, meta = {}) {
-		const components = new ActionRowBuilder().addComponents(
-			new ButtonBuilder().setCustomId('temp:request').setLabel('👥 Groupe temporaire').setStyle(ButtonStyle.Primary),
-			new ButtonBuilder().setCustomId('zone:invite').setLabel('➕ Inviter à ma zone').setStyle(ButtonStyle.Secondary)
-		);
-		const content = meta.message ? 'Options anonymes pour le message ciblé.' : 'Options anonymes disponibles :';
-		await interaction.reply({
-			content,
-			components: [components],
-			ephemeral: true
-		});
 	}
 }
 
-module.exports = AnonService;
+module.exports = { AnonService };

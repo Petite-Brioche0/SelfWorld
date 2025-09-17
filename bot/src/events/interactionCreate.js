@@ -1,61 +1,61 @@
-const { InteractionType } = require('discord.js');
-const { makeKey } = require('../utils/commandLoader');
+
+const { InteractionType, PermissionFlagsBits } = require('discord.js');
 
 module.exports = {
 	name: 'interactionCreate',
-	async execute(interaction, client) {
-		const { logger, rateLimiter, services, config } = client.context;
-
+	once: false,
+	async execute(interaction, deps) {
 		try {
+			const { ownerId, commands, context, services } = deps;
+
+			// Slash commands
 			if (interaction.isChatInputCommand()) {
-				await rateLimiter.consume(interaction.user.id).catch(() => {
-					throw new Error('Veuillez patienter avant de réutiliser cette commande.');
-				});
-				const entry = client.commands.get(interaction.commandName);
-				if (!entry) {
-					return interaction.reply({ content: 'Commande introuvable.', ephemeral: true });
+				const cmd = commands.get(interaction.commandName);
+				if (!cmd) return;
+
+				// Owner-only guard (admin absolu)
+				if (cmd.ownerOnly && interaction.user.id !== ownerId) {
+					return interaction.reply({ content: 'Commande réservée à l’Owner.', ephemeral: true });
 				}
-				const group = interaction.options.getSubcommandGroup(false);
-				const sub = interaction.options.getSubcommand();
-				const fragment = entry.fragments.get(makeKey(group, sub));
-				if (!fragment) {
-					return interaction.reply({ content: 'Sous-commande inconnue.', ephemeral: true });
+
+				// Execute
+				return await cmd.execute(interaction, deps);
+			}
+
+			// Context menu commands
+			if (interaction.isContextMenuCommand && interaction.isContextMenuCommand()) {
+				const cmd = context.get(interaction.commandName);
+				if (!cmd) return;
+				if (cmd.ownerOnly && interaction.user.id !== ownerId) {
+					return interaction.reply({ content: 'Commande réservée à l’Owner.', ephemeral: true });
 				}
-				if (fragment.globalOwnerOnly && interaction.user.id !== config.ownerUserId) {
-					return interaction.reply({ content: 'Cette commande est réservée au propriétaire.', ephemeral: true });
+				return await cmd.execute(interaction, deps);
+			}
+
+			// Buttons & modals for policies / temp groups / approvals
+			if (interaction.isButton()) {
+				// We route by customId prefixes
+				const id = interaction.customId || '';
+				if (id.startsWith('zone:approve:') || id.startsWith('zone:reject:')) {
+					return services.PolicyService.handleApprovalButton(interaction);
 				}
-				await fragment.execute(interaction, client.context);
-			} else if (interaction.isContextMenuCommand()) {
-				const command = client.contextMenus.get(interaction.commandName);
-				if (!command) {
-					return interaction.reply({ content: 'Contexte introuvable.', ephemeral: true });
-				}
-				await command.execute(interaction, client.context);
-			} else if (interaction.isButton()) {
-				if (interaction.customId.startsWith('policy:')) {
-					await services.policy.handlePolicyButton(interaction);
-				} else if (interaction.customId.startsWith('event:')) {
-					await services.event.handleComponent(interaction);
-				} else if (interaction.customId.startsWith('temp:')) {
-					await services.tempGroup.handleComponent(interaction);
-				} else {
-					await interaction.reply({ content: 'Action inconnue.', ephemeral: true });
-				}
-			} else if (interaction.type === InteractionType.ModalSubmit) {
-				if (interaction.customId.startsWith('zoneRequest:')) {
-					await services.zone.handleRequestModal(interaction);
-				} else if (interaction.customId.startsWith('temp:')) {
-					await services.tempGroup.handleModal(interaction);
-				} else {
-					await interaction.reply({ content: 'Réponse de formulaire inattendue.', ephemeral: true });
+				if (id.startsWith('temp:extend:') || id.startsWith('temp:delete:')) {
+					return services.TempGroupService.handleArchiveButtons(interaction);
 				}
 			}
-		} catch (error) {
-			logger.error({ err: error, userId: interaction.user?.id, guildId: interaction.guild?.id }, 'Interaction failure');
-			if (interaction.deferred || interaction.replied) {
-				await interaction.followUp({ content: 'Une erreur est survenue. L\'équipe a été informée.', ephemeral: true }).catch(() => undefined);
-			} else {
-				await interaction.reply({ content: 'Une erreur est survenue. L\'équipe a été informée.', ephemeral: true }).catch(() => undefined);
+
+			if (interaction.type === InteractionType.ModalSubmit) {
+				const id = interaction.customId || '';
+				if (id.startsWith('zone:request:')) {
+					return services.ZoneService.handleZoneRequestModal(interaction);
+				}
+			}
+		} catch (err) {
+			console.error('[interactionCreate] error:', err);
+			if (interaction && !interaction.replied) {
+				try {
+					await interaction.reply({ content: 'Erreur lors du traitement.', ephemeral: true });
+				} catch {}
 			}
 		}
 	}

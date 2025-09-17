@@ -1,116 +1,74 @@
-const { EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
 
-const { withTransaction } = require('../utils/db');
-
-const ALLOWED_POLICIES = ['closed', 'ask', 'invite', 'open'];
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, PermissionsBitField } = require('discord.js');
 
 class PolicyService {
-	constructor(client, pool, zoneService, logger) {
+	constructor(client, db) {
 		this.client = client;
-		this.pool = pool;
-		this.zoneService = zoneService;
-		this.logger = logger;
+		this.db = db;
 	}
 
 	async setPolicy(zoneId, policy) {
-		if (!ALLOWED_POLICIES.includes(policy)) {
-			throw new Error('Politique invalide.');
-		}
-		await this.pool.query('UPDATE zones SET policy = ? WHERE id = ?', [policy, zoneId]);
-		return policy;
+		await this.db.query('UPDATE zones SET policy=? WHERE id=?', [policy, zoneId]);
 	}
 
-	async createJoinRequest(zoneId, applicantId, reason) {
-		const zone = await this.zoneService.getZoneById(zoneId);
-		if (!zone) {
-			throw new Error('Zone introuvable');
-		}
-		const guild = await this.client.guilds.fetch(zone.guild_id);
-		const receptionChannel = guild.channels.cache.get(zone.text_reception_id);
-		if (!receptionChannel) {
-			throw new Error('Salon de réception introuvable');
-		}
-		return withTransaction(async (conn) => {
-			const [result] = await conn.query(
-				'INSERT INTO join_requests (zone_id, applicant_user_id, status) VALUES (?, ?, ?)',
-				[zoneId, applicantId, 'pending']
-			);
-			const requestId = result.insertId;
-			const embed = new EmbedBuilder()
-			.setTitle('Nouvelle demande de rejoindre la zone')
-			.setDescription(reason || 'Aucune justification fournie')
-			.addFields({ name: 'Membre', value: `<@${applicantId}>`, inline: true })
-			.setFooter({ text: `Demande #${requestId}` })
+	/**
+	 * For 'ask' policy: create a request card in #reception with Approve/Reject buttons.
+	 * If you want vote: allow ZoneMember to click; for owner-choice: restrict to ZoneOwner.
+	 */
+	async createJoinRequestCard(zoneRow, applicantUserId, mode) {
+		const recep = await this.client.channels.fetch(zoneRow.text_reception_id).catch(()=>null);
+		if (!recep) return null;
+
+		const e = new EmbedBuilder()
+			.setTitle('Demande d’entrée')
+			.setDescription(`Utilisateur: <@${applicantUserId}>`)
+			.addFields({ name: 'Mode', value: mode })
 			.setTimestamp();
-			const message = await receptionChannel.send({
-				embeds: [embed],
-				components: [
-					new ActionRowBuilder().addComponents(
-						new ButtonBuilder().setCustomId(`policy:approve:${requestId}`).setLabel('Approuver').setStyle(ButtonStyle.Success),
-						new ButtonBuilder().setCustomId(`policy:reject:${requestId}`).setLabel('Refuser').setStyle(ButtonStyle.Danger)
-					)
-				]
-			});
-			await conn.query('UPDATE join_requests SET message_id = ? WHERE id = ?', [message.id, requestId]);
-			return { requestId, messageId: message.id };
-		});
+
+		const row = new ActionRowBuilder().addComponents(
+			new ButtonBuilder().setCustomId(`zone:approve:${zoneRow.id}:${applicantUserId}`).setStyle(ButtonStyle.Success).setLabel('Approuver'),
+			new ButtonBuilder().setCustomId(`zone:reject:${zoneRow.id}:${applicantUserId}`).setStyle(ButtonStyle.Danger).setLabel('Refuser'),
+		);
+
+		const msg = await recep.send({ embeds: [e], components: [row] });
+		await this.db.query('INSERT INTO join_requests (zone_id, applicant_user_id, status, message_id, created_at) VALUES (?, ?, ?, ?, NOW())', [zoneRow.id, applicantUserId, 'pending', msg.id]);
+		return msg;
 	}
 
-	async handlePolicyButton(interaction) {
-		const [action, requestId] = interaction.customId.split(':').slice(1);
-		if (!['approve', 'reject'].includes(action)) {
-			await interaction.reply({ content: 'Action inconnue.', ephemeral: true });
-			return;
+	async handleApprovalButton(interaction) {
+		const parts = interaction.customId.split(':');
+		const approve = parts[1] === 'approve';
+		const zoneId = Number(parts[2]);
+		const applicant = parts[3];
+
+		// Load zone
+		const [rows] = await this.db.query('SELECT * FROM zones WHERE id=?', [zoneId]);
+		const zone = rows?.[0];
+		if (!zone) return interaction.reply({ content: 'Zone introuvable.', ephemeral: true });
+
+		// Auth: allow ZoneOwner of this zone only (owner-choice). Extend to members for "vote" if needed.
+		if (interaction.user.id !== String(zone.owner_user_id)) {
+			return interaction.reply({ content: 'Seul le propriétaire de cette zone peut décider ici.', ephemeral: true });
 		}
-		const request = await this.getRequest(Number(requestId));
-		if (!request) {
-			await interaction.reply({ content: 'Demande introuvable ou déjà traitée.', ephemeral: true });
-			return;
+
+		// Update request
+		await this.db.query('UPDATE join_requests SET status=? WHERE zone_id=? AND applicant_user_id=?', [approve ? 'approved' : 'rejected', zoneId, applicant]);
+
+		// Grant role if approved
+		if (approve) {
+			try {
+				const guild = interaction.guild;
+				const member = await guild.members.fetch(applicant);
+				await member.roles.add(zone.role_member_id);
+			} catch {}
 		}
-		const zone = await this.zoneService.getZoneById(request.zone_id);
-		if (!zone) {
-			await interaction.reply({ content: 'Zone introuvable.', ephemeral: true });
-			return;
-		}
+
 		try {
-			await this.zoneService.ensureZoneOwner(zone.id, interaction.user.id);
-		} catch (authError) {
-			await interaction.reply({ content: 'Seul le propriétaire peut traiter cette demande.', ephemeral: true });
-			return;
+			await interaction.update({ content: approve ? '✅ Demande approuvée' : '❌ Demande refusée', embeds: [], components: [] });
+		} catch {
+			await interaction.reply({ content: approve ? '✅ Demande approuvée' : '❌ Demande refusée', ephemeral: true });
 		}
-		if (action === 'approve') {
-			await this.approveRequest(request.id, interaction.user.id);
-			await interaction.reply({ content: 'Demande approuvée.', ephemeral: true });
-		} else {
-			await this.rejectRequest(request.id, interaction.user.id);
-			await interaction.reply({ content: 'Demande refusée.', ephemeral: true });
-		}
-	}
-
-	async approveRequest(requestId, approverId) {
-		const request = await this.getRequest(requestId);
-		if (!request) {
-			throw new Error('Demande introuvable');
-		}
-		await withTransaction(async (conn) => {
-			await conn.query('UPDATE join_requests SET status = ?, message_id = NULL WHERE id = ?', ['approved', requestId]);
-		});
-		await this.zoneService.addMember(request.zone_id, request.applicant_user_id);
-		this.logger.info({ requestId, approverId }, 'Join request approved');
-	}
-
-	async rejectRequest(requestId, approverId) {
-		await withTransaction(async (conn) => {
-			await conn.query('UPDATE join_requests SET status = ?, message_id = NULL WHERE id = ?', ['rejected', requestId]);
-		});
-		this.logger.info({ requestId, approverId }, 'Join request rejected');
-	}
-
-	async getRequest(requestId) {
-		const [rows] = await this.pool.query('SELECT * FROM join_requests WHERE id = ?', [requestId]);
-		return rows[0] || null;
 	}
 }
 
-module.exports = PolicyService;
-module.exports.ALLOWED_POLICIES = ALLOWED_POLICIES;
+module.exports = { PolicyService };
