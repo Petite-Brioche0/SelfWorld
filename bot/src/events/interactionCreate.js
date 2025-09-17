@@ -1,61 +1,65 @@
-
-const { InteractionType, PermissionFlagsBits } = require('discord.js');
+// src/events/interactionCreate.js
+const { InteractionType } = require('discord.js');
 
 module.exports = {
 	name: 'interactionCreate',
 	once: false,
-	async execute(interaction, deps) {
+	async execute(interaction, client) {
 		try {
-			const { ownerId, commands, context, services } = deps;
+			const ownerId =
+				client?.context?.config?.ownerUserId ||
+				process.env.OWNER_ID ||
+				process.env.OWNER_USER_ID;
+
+			const commands = client.commands;       // Map des slash
+			const context  = client.contextMenus;   // Map des context menus
+			const services = client.context.services; // { zone, policy, anon, event, activity, tempGroup }
 
 			// Slash commands
 			if (interaction.isChatInputCommand()) {
 				const cmd = commands.get(interaction.commandName);
 				if (!cmd) return;
-
-				// Owner-only guard (admin absolu)
 				if (cmd.ownerOnly && interaction.user.id !== ownerId) {
 					return interaction.reply({ content: 'Commande réservée à l’Owner.', ephemeral: true });
 				}
-
-				// Execute
-				return await cmd.execute(interaction, deps);
+				return cmd.execute(interaction, client.context);
 			}
 
-			// Context menu commands
-			if (interaction.isContextMenuCommand && interaction.isContextMenuCommand()) {
+			// Context menu
+			if (interaction.isContextMenuCommand()) {
 				const cmd = context.get(interaction.commandName);
 				if (!cmd) return;
 				if (cmd.ownerOnly && interaction.user.id !== ownerId) {
 					return interaction.reply({ content: 'Commande réservée à l’Owner.', ephemeral: true });
 				}
-				return await cmd.execute(interaction, deps);
+				return cmd.execute(interaction, client.context);
 			}
 
-			// Buttons & modals for policies / temp groups / approvals
+			// Boutons
 			if (interaction.isButton()) {
-				// We route by customId prefixes
 				const id = interaction.customId || '';
 				if (id.startsWith('zone:approve:') || id.startsWith('zone:reject:')) {
-					return services.PolicyService.handleApprovalButton(interaction);
+					return services.policy.handleApprovalButton(interaction);
 				}
 				if (id.startsWith('temp:extend:') || id.startsWith('temp:delete:')) {
-					return services.TempGroupService.handleArchiveButtons(interaction);
+					return services.tempGroup.handleArchiveButtons(interaction);
+				}
+				if (id.startsWith('event:join:')) {
+					return services.event.handleJoinButton(interaction);
 				}
 			}
 
+			// Modales
 			if (interaction.type === InteractionType.ModalSubmit) {
 				const id = interaction.customId || '';
 				if (id.startsWith('zone:request:')) {
-					return services.ZoneService.handleZoneRequestModal(interaction);
+					return services.zone.handleZoneRequestModal(interaction);
 				}
 			}
 		} catch (err) {
 			console.error('[interactionCreate] error:', err);
 			if (interaction && !interaction.replied) {
-				try {
-					await interaction.reply({ content: 'Erreur lors du traitement.', ephemeral: true });
-				} catch {}
+				try { await interaction.reply({ content: 'Erreur lors du traitement.', ephemeral: true }); } catch {}
 			}
 		}
 	}
