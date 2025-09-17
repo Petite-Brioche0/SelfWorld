@@ -1,3 +1,4 @@
+
 require('dotenv').config();
 
 const path = require('node:path');
@@ -18,10 +19,7 @@ const { TempGroupService } = require('./services/TempGroupService');
 const logger = pino({
 	level: process.env.LOG_LEVEL || 'info',
 	transport: process.env.NODE_ENV !== 'production'
-		? {
-			target: 'pino-pretty',
-			options: { colorize: true, translateTime: 'SYS:standard' }
-		}
+		? { target: 'pino-pretty', options: { colorize: true, translateTime: 'SYS:standard' } }
 		: undefined
 });
 
@@ -39,12 +37,12 @@ const client = new Client({
 
 (async () => {
 	try {
-		// Charger commandes
+		// Load commands
 		const { commands, context } = await loadCommands(path.join(__dirname, 'commands'));
 		client.commands = new Collection(commands);
 		client.contextMenus = new Collection(context);
 
-		// Charger events
+		// Load events
 		const eventsPath = path.join(__dirname, 'events');
 		const eventFiles = fs.readdirSync(eventsPath).filter((f) => f.endsWith('.js'));
 		for (const file of eventFiles) {
@@ -59,23 +57,20 @@ const client = new Client({
 		// Services
 		const pool = db.getPool();
 		const services = {
-            zone:      new ZoneService(client, pool, process.env.OWNER_ID),
-            policy:    new PolicyService(client, pool),
-            activity:  new ActivityService(client, pool),
-            anon:      new AnonService(client, pool),
-            event:     new EventService(client, pool),
-            tempGroup: new TempGroupService(client, pool)
-            };
+			zone: new ZoneService(client, pool, process.env.OWNER_ID),
+			policy: new PolicyService(client, pool),
+			activity: new ActivityService(client, pool),
+			anon: new AnonService(client, pool),
+			event: new EventService(client, pool),
+			tempGroup: new TempGroupService(client, pool)
+		};
 
 		client.context = {
 			logger,
 			pool,
 			services,
 			rateLimiter: new RateLimiterMemory({ points: 5, duration: 10 }),
-			config: {
-				ownerUserId: process.env.OWNER_USER_ID,
-				modRoleId: process.env.MOD_ROLE_ID
-			}
+			config: { ownerUserId: process.env.OWNER_ID, modRoleId: process.env.MOD_ROLE_ID }
 		};
 
 		if (!process.env.DISCORD_TOKEN) {
@@ -91,7 +86,6 @@ const client = new Client({
 	}
 })();
 
-// Handlers globaux
 process.on('unhandledRejection', (error) => {
 	logger.error({ err: error }, 'Unhandled promise rejection');
 });

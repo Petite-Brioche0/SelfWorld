@@ -1,5 +1,5 @@
 
-const { ChannelType, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const { ChannelType, EmbedBuilder } = require('discord.js');
 const { applyZoneOverwrites } = require('../utils/permissions');
 
 class ZoneService {
@@ -15,12 +15,13 @@ class ZoneService {
 
 	async handleZoneRequestModal(interaction) {
 		await interaction.reply({ content: 'Reçu. Ta demande a été transmise à l’Owner.', ephemeral: true });
-		// Post into #zone-requests should be implemented in your admin command / wiring.
+		// TODO: post into #zone-requests
 	}
 
 	async createZone(guild, { name, ownerUserId, policy }) {
 		const slug = this.#slugify(name);
-		// Create roles
+
+		// Roles
 		const roleOwner = await guild.roles.create({ name: `ZoneOwner-${slug}`, mentionable: false, permissions: [] });
 		const roleMember = await guild.roles.create({ name: `ZoneMember-${slug}`, mentionable: false, permissions: [] });
 		const roleMuted = await guild.roles.create({ name: `ZoneMuted-${slug}`, mentionable: false, permissions: [] });
@@ -46,32 +47,26 @@ class ZoneService {
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
 			[guild.id, name, slug, ownerUserId, category.id, panel.id, reception.id, general.id, anon.id, voice.id, roleOwner.id, roleMember.id, roleMuted.id, policy]
 		);
-
 		const zoneId = res.insertId;
 
-		// Link anon channel row
-		await this.db.query(
-			`INSERT INTO anon_channels (zone_id, source_channel_id) VALUES (?, ?)`,
-			[zoneId, anon.id]
-		);
+		await this.db.query(`INSERT INTO anon_channels (zone_id, source_channel_id) VALUES (?, ?)`, [zoneId, anon.id]);
 
-		// Grant owner roles
+		// Grant roles
 		const member = await guild.members.fetch(ownerUserId).catch(()=>null);
 		if (member) await member.roles.add([roleOwner, roleMember]).catch(()=>{});
 
 		// Panel
 		const embed = new EmbedBuilder()
 			.setTitle(`Panneau de la zone ${name}`)
-			.setDescription('Utilise les menus/boutons pour configurer la politique, gérer les membres, rôles et salons.\nToutes les opérations sensibles passent par le bot.')
+			.setDescription('Configure la politique, gère les membres, rôles et salons via le bot.')
 			.addFields(
 				{ name: 'Politique', value: policy, inline: true },
 				{ name: 'Owner', value: `<@${ownerUserId}>`, inline: true }
 			)
 			.setTimestamp();
-
 		await panel.send({ content: `<@${ownerUserId}>`, embeds: [embed] }).catch(()=>{});
 
-		return { zoneId, ids: { category, panel, reception, general, anon, voice, roleOwner, roleMember, roleMuted } };
+		return { zoneId, slug };
 	}
 }
 

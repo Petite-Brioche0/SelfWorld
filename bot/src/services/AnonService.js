@@ -22,7 +22,7 @@ class AnonService {
 
 	async #getAnonAdminChannelId(guildId) {
 		const [rows] = await this.db.query('SELECT anon_admin_channel_id FROM settings WHERE guild_id = ?', [guildId]);
-		return rows?.[0]?.anon_admin_channel_id || null;
+		return rows?.[0]?.anon_admin_channel_id || process.env.ANON_ADMIN_CHANNEL_ID || null;
 	}
 
 	async #findZoneByAnonChannel(channelId) {
@@ -53,17 +53,11 @@ class AnonService {
 			.replace(/@here/gi, '@\u200bhere');
 	}
 
-	/**
-	 * Handle a user message posted in #anon-agora of a zone.
-	 * - delete original
-	 * - fan-out anonymized to all other zones' #anon-agora via webhook
-	 * - log raw in admin-only channel
-	 */
 	async handleMessage(message) {
 		if (!message || !message.guild || message.author.bot) return;
 
 		const zoneId = await this.#findZoneByAnonChannel(message.channelId);
-		if (!zoneId) return; // not an anon channel managed by DB
+		if (!zoneId) return; // not an anon channel
 
 		// Log raw to admin
 		const adminChannelId = await this.#getAnonAdminChannelId(message.guild.id);
@@ -86,7 +80,7 @@ class AnonService {
 		// Delete original
 		await message.delete().catch(()=>{});
 
-		// Prepare fan-out
+		// Fan-out
 		const targets = await this.#targetsExcept(zoneId);
 		const files = message.attachments?.size ? [...message.attachments.values()].map(a => a.url) : [];
 

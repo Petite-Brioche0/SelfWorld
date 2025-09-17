@@ -1,5 +1,5 @@
 
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, PermissionsBitField } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 
 class PolicyService {
 	constructor(client, db) {
@@ -11,10 +11,6 @@ class PolicyService {
 		await this.db.query('UPDATE zones SET policy=? WHERE id=?', [policy, zoneId]);
 	}
 
-	/**
-	 * For 'ask' policy: create a request card in #reception with Approve/Reject buttons.
-	 * If you want vote: allow ZoneMember to click; for owner-choice: restrict to ZoneOwner.
-	 */
 	async createJoinRequestCard(zoneRow, applicantUserId, mode) {
 		const recep = await this.client.channels.fetch(zoneRow.text_reception_id).catch(()=>null);
 		if (!recep) return null;
@@ -31,7 +27,8 @@ class PolicyService {
 		);
 
 		const msg = await recep.send({ embeds: [e], components: [row] });
-		await this.db.query('INSERT INTO join_requests (zone_id, applicant_user_id, status, message_id, created_at) VALUES (?, ?, ?, ?, NOW())', [zoneRow.id, applicantUserId, 'pending', msg.id]);
+		await this.db.query('INSERT INTO join_requests (zone_id, applicant_user_id, status, message_id, created_at) VALUES (?, ?, ?, ?, NOW())',
+			[zoneRow.id, applicantUserId, 'pending', msg.id]);
 		return msg;
 	}
 
@@ -41,20 +38,17 @@ class PolicyService {
 		const zoneId = Number(parts[2]);
 		const applicant = parts[3];
 
-		// Load zone
 		const [rows] = await this.db.query('SELECT * FROM zones WHERE id=?', [zoneId]);
 		const zone = rows?.[0];
 		if (!zone) return interaction.reply({ content: 'Zone introuvable.', ephemeral: true });
 
-		// Auth: allow ZoneOwner of this zone only (owner-choice). Extend to members for "vote" if needed.
 		if (interaction.user.id !== String(zone.owner_user_id)) {
 			return interaction.reply({ content: 'Seul le propriétaire de cette zone peut décider ici.', ephemeral: true });
 		}
 
-		// Update request
-		await this.db.query('UPDATE join_requests SET status=? WHERE zone_id=? AND applicant_user_id=?', [approve ? 'approved' : 'rejected', zoneId, applicant]);
+		await this.db.query('UPDATE join_requests SET status=? WHERE zone_id=? AND applicant_user_id=?',
+			[approve ? 'approved' : 'rejected', zoneId, applicant]);
 
-		// Grant role if approved
 		if (approve) {
 			try {
 				const guild = interaction.guild;

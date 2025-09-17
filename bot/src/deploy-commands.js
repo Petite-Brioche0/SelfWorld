@@ -1,5 +1,5 @@
-require('dotenv').config();
 
+require('dotenv').config();
 const path = require('node:path');
 const { REST, Routes } = require('discord.js');
 const pino = require('pino');
@@ -7,13 +7,9 @@ const { loadCommands } = require('./utils/commandLoader');
 
 const logger = pino({
 	level: process.env.LOG_LEVEL || 'info',
-	transport: process.env.NODE_ENV !== 'production' ? {
-		target: 'pino-pretty',
-		options: {
-			colorize: true,
-			translateTime: 'SYS:standard'
-		}
-	} : undefined
+	transport: process.env.NODE_ENV !== 'production'
+		? { target: 'pino-pretty', options: { colorize: true, translateTime: 'SYS:standard' } }
+		: undefined
 });
 
 if (!process.env.CLIENT_ID || !process.env.GUILD_ID || !process.env.DISCORD_TOKEN) {

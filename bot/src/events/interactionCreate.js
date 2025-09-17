@@ -1,4 +1,4 @@
-// src/events/interactionCreate.js
+
 const { InteractionType } = require('discord.js');
 
 module.exports = {
@@ -11,11 +11,10 @@ module.exports = {
 				process.env.OWNER_ID ||
 				process.env.OWNER_USER_ID;
 
-			const commands = client.commands;       // Map des slash
-			const context  = client.contextMenus;   // Map des context menus
-			const services = client.context.services; // { zone, policy, anon, event, activity, tempGroup }
+			const commands = client.commands;
+			const context  = client.contextMenus;
+			const services = client.context.services;
 
-			// Slash commands
 			if (interaction.isChatInputCommand()) {
 				const cmd = commands.get(interaction.commandName);
 				if (!cmd) return;
@@ -25,7 +24,6 @@ module.exports = {
 				return cmd.execute(interaction, client.context);
 			}
 
-			// Context menu
 			if (interaction.isContextMenuCommand()) {
 				const cmd = context.get(interaction.commandName);
 				if (!cmd) return;
@@ -35,7 +33,6 @@ module.exports = {
 				return cmd.execute(interaction, client.context);
 			}
 
-			// Boutons
 			if (interaction.isButton()) {
 				const id = interaction.customId || '';
 				if (id.startsWith('zone:approve:') || id.startsWith('zone:reject:')) {
@@ -49,7 +46,6 @@ module.exports = {
 				}
 			}
 
-			// Modales
 			if (interaction.type === InteractionType.ModalSubmit) {
 				const id = interaction.customId || '';
 				if (id.startsWith('zone:request:')) {

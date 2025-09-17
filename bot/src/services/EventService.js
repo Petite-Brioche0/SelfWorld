@@ -26,11 +26,9 @@ class EventService {
 		const eventId = Number(parts[2]);
 		const zoneId = Number(parts[3]);
 
-		// Check if already joined from another zone
 		const [rows] = await this.db.query('SELECT zone_id FROM event_participants WHERE event_id=? AND user_id=?', [eventId, interaction.user.id]);
 		if (rows.length && rows[0].zone_id !== zoneId) {
-			// Ask switch team
-			return interaction.reply({ content: 'Tu es déjà inscrit via une autre zone. Veux-tu changer de team ? (refais le clic pour confirmer)', ephemeral: true });
+			return interaction.reply({ content: 'Tu es déjà inscrit via une autre zone. Re-clique pour changer de team.', ephemeral: true });
 		}
 
 		await this.db.query('REPLACE INTO event_participants (event_id, user_id, zone_id, joined_at) VALUES (?, ?, ?, NOW())', [eventId, interaction.user.id, zoneId]);
@@ -38,14 +36,12 @@ class EventService {
 	}
 
 	async startEvent(guild, eventId, name='event') {
-		// Create category & channels
-		const category = await guild.channels.create({ name: name, type: ChannelType.GuildCategory });
+		const category = await guild.channels.create({ name, type: ChannelType.GuildCategory });
 		const text = await guild.channels.create({ name: 'briefing', type: ChannelType.GuildText, parent: category.id });
 		await guild.channels.create({ name: 'scores', type: ChannelType.GuildText, parent: category.id });
 		await guild.channels.create({ name: 'vocal-a', type: ChannelType.GuildVoice, parent: category.id });
 		await guild.channels.create({ name: 'vocal-b', type: ChannelType.GuildVoice, parent: category.id });
 
-		// No auto-move here (permissions can be tricky) — prepare roles or invites as needed.
 		await this.db.query('UPDATE events SET status="running" WHERE id=?', [eventId]);
 		await text.send('Événement démarré.').catch(()=>{});
 		return { categoryId: category.id };

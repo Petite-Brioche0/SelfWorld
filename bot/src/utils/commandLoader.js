@@ -3,13 +3,10 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Recursively load commands and context menu handlers.
- * Each command module must export:
- *   - data (SlashCommandBuilder | ContextMenuCommandBuilder)
- *   - execute(interaction, deps)
- * Optional:
- *   - guildOnly (boolean)
- *   - ownerOnly (boolean)  // admin absolu (Owner)
+ * Recursively load slash commands and context menu handlers.
+ * Each command must export:
+ *  - data (SlashCommandBuilder | ContextMenuCommandBuilder)
+ *  - execute(interaction, ctx)
  */
 async function loadCommands(rootDir) {
 	const commands = new Map();
@@ -22,22 +19,21 @@ async function loadCommands(rootDir) {
 				walk(p);
 			} else if (entry.isFile() && entry.name.endsWith('.js')) {
 				const mod = require(p);
-				if (!mod || !mod.data || !mod.execute) continue;
-				const name = mod.data.name;
-				if (!name) continue;
-
-				// Detect context menu by builder type name
-				const typeName = (mod.data.constructor && mod.data.constructor.name) || '';
-				if (typeName.includes('ContextMenu')) {
-					context.set(name, mod);
-				} else {
-					commands.set(name, mod);
+				if (!mod) continue;
+				if (mod.data && typeof mod.execute === 'function') {
+					const typeName = (mod.data?.constructor?.name) || '';
+					const name = mod.data.name;
+					if (!name) continue;
+					if (typeName.includes('ContextMenu')) {
+						context.set(name, mod);
+					} else {
+						commands.set(name, mod);
+					}
 				}
 			}
 		}
 	}
-
-	walk(rootDir);
+	if (fs.existsSync(rootDir)) walk(rootDir);
 	return { commands, context };
 }
 

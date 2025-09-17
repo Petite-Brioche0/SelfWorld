@@ -1,13 +1,6 @@
 
 const { ChannelType, PermissionFlagsBits } = require('discord.js');
 
-/**
- * Apply strict isolation permissions for a zone category and its children.
- * - @everyone: no view
- * - zoneMemberRole: view/send in text, connect in voice
- * - zoneOwnerRole: same as member + manage channels on the category only
- * - global Owner (admin absolu) will inherit from guild role setup
- */
 async function applyZoneOverwrites(category, { everyoneRole, zoneMemberRole, zoneOwnerRole }) {
 	await category.permissionOverwrites.set([
 		{ id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] },

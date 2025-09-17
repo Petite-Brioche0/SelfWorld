@@ -1,11 +1,22 @@
+
 module.exports = {
 	name: 'ready',
 	once: true,
 	async execute(client) {
 		const { logger, services } = client.context;
 		logger.info({ tag: client.user.tag }, 'Bot ready');
-		services.activity.start();
-		services.anon.loadSaltScheduler();
+
+		// Schedule periodic tasks
+		// Sweep expired temp groups hourly
+		setInterval(() => {
+			services.tempGroup.sweepExpired().catch(err => logger.error({ err }, 'sweepExpired failed'));
+		}, 60 * 60 * 1000);
+
+		// Post low-activity alerts daily
+		setInterval(() => {
+			services.activity.postLowActivityAlerts().catch(err => logger.error({ err }, 'activity alerts failed'));
+		}, 24 * 60 * 60 * 1000);
+
 		client.user.setPresence({
 			activities: [{ name: 'secure zone ops' }],
 			status: 'online'

@@ -1,27 +1,34 @@
-const POLICIES = ['closed', 'ask', 'invite', 'open'];
+
+const { SlashCommandBuilder } = require('discord.js');
 
 module.exports = {
-	command: 'zone',
-	rootDescription: 'Gestion des zones sécurisées',
-	subCommandGroup: 'admin',
-	groupDescription: 'Administration globale',
-	subCommand: 'create',
-	description: 'Créer une nouvelle zone',
-	globalOwnerOnly: true,
-	build(builder) {
-		builder
-		.addStringOption((option) => option.setName('name').setDescription('Nom de la zone').setRequired(true))
-		.addUserOption((option) => option.setName('owner').setDescription('Propriétaire de la zone').setRequired(true))
-		.addStringOption((option) => option.setName('policy').setDescription('Politique de la zone').setRequired(true).addChoices(
-			POLICIES.map((value) => ({ name: value, value }))
-		));
-	},
-	async execute(interaction, { services }) {
+	ownerOnly: true,
+	data: new SlashCommandBuilder()
+		.setName('zone-create')
+		.setDescription('Créer une nouvelle zone')
+		.addStringOption(o => o.setName('name').setDescription('Nom de la zone').setRequired(true))
+		.addUserOption(o => o.setName('owner').setDescription('Propriétaire de la zone').setRequired(true))
+		.addStringOption(o => o.setName('policy').setDescription('Politique')
+			.addChoices(
+				{ name: 'closed', value: 'closed' },
+				{ name: 'ask', value: 'ask' },
+				{ name: 'invite', value: 'invite' },
+				{ name: 'open', value: 'open' }
+			).setRequired(true)
+		),
+	async execute(interaction, ctx) {
 		const name = interaction.options.getString('name', true);
 		const owner = interaction.options.getUser('owner', true);
 		const policy = interaction.options.getString('policy', true);
-		const guild = interaction.guild;
-		const zone = await services.zone.createZone(guild, { name, ownerId: owner.id, policy });
-		await interaction.reply({ content: `Zone \`${zone.slug}\` créée pour ${owner}.`, ephemeral: true });
+
+		await interaction.deferReply({ ephemeral: true });
+
+		try {
+			const res = await ctx.services.zone.createZone(interaction.guild, { name, ownerUserId: owner.id, policy });
+			return interaction.editReply(`✅ Zone \`${name}\` créée (slug: ${res.slug}).`);
+		} catch (err) {
+			ctx.logger.error({ err }, 'zone-create failed');
+			return interaction.editReply('❌ Échec de création de la zone.');
+		}
 	}
 };
