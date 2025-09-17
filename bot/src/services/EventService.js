@@ -64,7 +64,7 @@ class EventService {
 		}
 		const embed = new EmbedBuilder()
 		.setTitle(`Nouvel évènement : ${event.name}`)
-		.setDescription('Rejoignez l'évènement avec `/public event join`.')
+		.setDescription("Rejoignez l'évènement avec `/public event join`.")
 		.setTimestamp();
 		await reception.send({ embeds: [embed] });
 	}

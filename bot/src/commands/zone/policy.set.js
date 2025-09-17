@@ -4,7 +4,7 @@ module.exports = {
 	command: 'zone',
 	subCommandGroup: 'policy',
 	subCommand: 'set',
-	description: 'Définir la politique d'adhésion',
+	description: "Définir la politique d'adhésion",
 	build(builder) {
 		builder
 		.addStringOption((option) => option.setName('slug').setDescription('Identifiant de la zone').setRequired(true))

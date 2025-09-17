@@ -5,7 +5,7 @@ module.exports = {
 	description: 'Rejoindre un évènement inter-zone',
 	build(builder) {
 		builder
-		.addStringOption((option) => option.setName('name').setDescription('Nom ou identifiant de l'évènement').setRequired(true))
+		.addStringOption((option) => option.setName('name').setDescription("Nom ou identifiant de l'évènement").setRequired(true))
 		.addStringOption((option) => option.setName('slug').setDescription('Identifiant de la zone utilisée pour participer').setRequired(true));
 	},
 	async execute(interaction, { services }) {

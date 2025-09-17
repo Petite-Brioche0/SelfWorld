@@ -1,6 +1,6 @@
 module.exports = {
 	command: 'anon',
-	rootDescription: 'Outils d'anonymat',
+	rootDescription: "Outils d'anonymat",
 	subCommand: 'options',
 	description: 'Afficher les options anonymes',
 	build(builder) {

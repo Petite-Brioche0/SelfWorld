@@ -112,7 +112,7 @@ class ZoneService {
 				content: `<@${ownerId}>`,
 				embeds: [
 					new EmbedBuilder()
-					.setTitle('Zone prête à l'emploi')
+					.setTitle("Zone prête à l'emploi")
 					.setDescription('Utilisez `/zone policy set` pour ajuster la politique et `/zone member add` pour inviter vos membres. Les actions sensibles restent anonymes.')
 				]
 			});
@@ -194,7 +194,7 @@ class ZoneService {
 		}
 		const [rows] = await this.pool.query('SELECT role FROM zone_members WHERE zone_id = ? AND user_id = ?', [zoneId, userId]);
 		if (!rows[0]) {
-			throw new Error('Vous n'appartenez pas à cette zone.');
+			throw new Error("Vous n'appartenez pas à cette zone.");
 		}
 		return zone;
 	}
@@ -341,7 +341,7 @@ class ZoneService {
 		}
 		const settings = await this.getSettings(guildId);
 		if (!settings?.requests_channel_id) {
-			await interaction.reply({ content: 'Aucun canal de gestion configuré. Prévenez l'administrateur.', ephemeral: true });
+			await interaction.reply({ content: "Aucun canal de gestion configuré. Prévenez l'administrateur.", ephemeral: true });
 			return;
 		}
 		const requestChannel = await this.client.channels.fetch(settings.requests_channel_id);

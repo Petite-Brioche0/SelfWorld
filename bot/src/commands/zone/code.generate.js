@@ -2,7 +2,7 @@ module.exports = {
 	command: 'zone',
 	subCommandGroup: 'code',
 	subCommand: 'generate',
-	description: 'Générer un code d'invitation à usage unique',
+	description: "Générer un code d'invitation à usage unique",
 	build(builder) {
 		builder
 		.addStringOption((option) => option.setName('slug').setDescription('Identifiant de la zone').setRequired(true))
