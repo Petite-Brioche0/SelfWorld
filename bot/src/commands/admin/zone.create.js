@@ -8,12 +8,12 @@ module.exports = {
 		.setDescription('Créer une nouvelle zone')
 		.addStringOption(o => o.setName('name').setDescription('Nom de la zone').setRequired(true))
 		.addUserOption(o => o.setName('owner').setDescription('Propriétaire de la zone').setRequired(true))
-		.addStringOption(o => o.setName('policy').setDescription('Politique')
+		.addStringOption(o => o.setName('policy').setDescription("Politique d'entrée")
 			.addChoices(
-				{ name: 'closed', value: 'closed' },
-				{ name: 'ask', value: 'ask' },
-				{ name: 'invite', value: 'invite' },
-				{ name: 'open', value: 'open' }
+				{ name: 'fermé', value: 'closed' },
+				{ name: 'sur demande', value: 'ask' },
+				{ name: 'sur invitation', value: 'invite' },
+				{ name: 'ouvert', value: 'open' }
 			).setRequired(true)
 		),
 	async execute(interaction, ctx) {
