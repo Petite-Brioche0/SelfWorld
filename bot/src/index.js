@@ -86,6 +86,18 @@ const client = new Client({
 	}
 })();
 
+process.on('SIGINT', () => {
+  logger.info('Arrêt demandé (Ctrl+C)');
+  client.destroy();
+  process.exit(0);
+});
+	
+process.on('SIGTERM', () => {
+  console.log('Arrêt demandé (SIGTERM)');
+  client.destroy();
+  process.exit(0);
+});
+
 process.on('unhandledRejection', (error) => {
 	logger.error({ err: error }, 'Unhandled promise rejection');
 });
