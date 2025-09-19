@@ -1,3 +1,5 @@
+const { MessageFlags } = require('discord.js');
+
 module.exports = {
 	command: 'event',
 	rootDescription: 'Coordination des évènements',
@@ -12,12 +14,12 @@ module.exports = {
 		const name = interaction.options.getString('name', true);
 		const slug = interaction.options.getString('slug', true);
 		const zone = await services.zone.getZoneBySlug(interaction.guild.id, slug);
-		if (!zone) {
-			await interaction.reply({ content: 'Zone introuvable.', ephemeral: true });
-			return;
-		}
+                if (!zone) {
+                        await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral });
+                        return;
+                }
 		await services.zone.ensureZoneMember(zone.id, interaction.user.id);
 		await services.event.joinEvent(name, zone.id, interaction.user.id);
-		await interaction.reply({ content: 'Votre participation a été enregistrée.', ephemeral: true });
-	}
+                await interaction.reply({ content: 'Votre participation a été enregistrée.', flags: MessageFlags.Ephemeral });
+        }
 };

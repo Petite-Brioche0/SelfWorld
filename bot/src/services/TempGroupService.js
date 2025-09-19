@@ -1,5 +1,5 @@
 
-const { ChannelType, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { ChannelType, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 
 class TempGroupService {
 	constructor(client, db) {
@@ -37,19 +37,19 @@ class TempGroupService {
 		const groupId = Number(parts[2]);
 		const [rows] = await this.db.query('SELECT * FROM temp_groups WHERE id=?', [groupId]);
 		const g = rows?.[0];
-		if (!g) return interaction.reply({ content: 'Groupe introuvable.', ephemeral: true });
+                if (!g) return interaction.reply({ content: 'Groupe introuvable.', flags: MessageFlags.Ephemeral });
 
-		const text = await this.client.channels.fetch(g.category_id).catch(()=>null);
-		if (!text) return interaction.reply({ content: 'Catégorie introuvable.', ephemeral: true });
+                const text = await this.client.channels.fetch(g.category_id).catch(()=>null);
+                if (!text) return interaction.reply({ content: 'Catégorie introuvable.', flags: MessageFlags.Ephemeral });
 
-		if (action === 'delete') {
-			await this._deleteGroup(g);
-			return interaction.reply({ content: 'Groupe supprimé.', ephemeral: true });
-		}
-		if (action === 'extend') {
-			await this.db.query('UPDATE temp_groups SET expires_at = DATE_ADD(NOW(), INTERVAL 72 HOUR) WHERE id=?', [groupId]);
-			return interaction.reply({ content: 'Groupe prolongé de 72h.', ephemeral: true });
-		}
+                if (action === 'delete') {
+                        await this._deleteGroup(g);
+                        return interaction.reply({ content: 'Groupe supprimé.', flags: MessageFlags.Ephemeral });
+                }
+                if (action === 'extend') {
+                        await this.db.query('UPDATE temp_groups SET expires_at = DATE_ADD(NOW(), INTERVAL 72 HOUR) WHERE id=?', [groupId]);
+                        return interaction.reply({ content: 'Groupe prolongé de 72h.', flags: MessageFlags.Ephemeral });
+                }
 	}
 
 	async _deleteGroup(g) {

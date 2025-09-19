@@ -1,20 +1,25 @@
-const { ChannelType, EmbedBuilder } = require('discord.js');
+const { ChannelType, EmbedBuilder, MessageFlags } = require('discord.js');
 const { applyZoneOverwrites } = require('../utils/permissions');
 
 class ZoneService {
-	constructor(client, db, ownerId, logger) {
-		this.client = client;
-		this.db = db;
-		this.ownerId = ownerId;
-		this.logger = logger;
-	}
+        constructor(client, db, ownerId, logger, panelService = null) {
+                this.client = client;
+                this.db = db;
+                this.ownerId = ownerId;
+                this.logger = logger;
+                this.panelService = panelService;
+        }
+
+        setPanelService(panelService) {
+                this.panelService = panelService;
+        }
 
 	#slugify(name) {
 		return String(name).toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9\-]/g, '').slice(0, 32);
 	}
 
 	async handleZoneRequestModal(interaction) {
-		await interaction.reply({ content: 'Reçu. Ta demande a été transmise à l’Owner.', ephemeral: true });
+                await interaction.reply({ content: 'Reçu. Ta demande a été transmise à l’Owner.', flags: MessageFlags.Ephemeral });
 		// TODO: post into #zone-requests
 	}
 
@@ -22,24 +27,31 @@ class ZoneService {
 		const slug = this.#slugify(name);
 
 		// Roles
-		const roleOwner = await guild.roles.create({ name: `ZoneOwner-${slug}`, mentionable: false, permissions: [] });
-		const roleMember = await guild.roles.create({ name: `ZoneMember-${slug}`, mentionable: false, permissions: [] });
-		const roleMuted = await guild.roles.create({ name: `ZoneMuted-${slug}`, mentionable: false, permissions: [] });
+                const roleOwner = await guild.roles.create({ name: `O-${slug}`, mentionable: false, permissions: [] });
+                const roleMember = await guild.roles.create({ name: `M-${slug}`, mentionable: false, permissions: [] });
+                const roleMuted = await guild.roles.create({ name: `ZoneMuted-${slug}`, mentionable: false, permissions: [] });
 
 		// Category + channels
-		const category = await guild.channels.create({ name: `zone-${slug}`, type: ChannelType.GuildCategory });
-		const panel = await guild.channels.create({ name: 'panel', type: ChannelType.GuildText, parent: category.id });
-		const reception = await guild.channels.create({ name: 'reception', type: ChannelType.GuildText, parent: category.id });
-		const general = await guild.channels.create({ name: 'general', type: ChannelType.GuildText, parent: category.id });
-		const anon = await guild.channels.create({ name: 'anon-agora', type: ChannelType.GuildText, parent: category.id });
-		const voice = await guild.channels.create({ name: 'vocal', type: ChannelType.GuildVoice, parent: category.id });
+                const category = await guild.channels.create({ name: `z-${slug}`, type: ChannelType.GuildCategory });
+                const panel = await guild.channels.create({ name: 'panel', type: ChannelType.GuildText, parent: category.id });
+                const reception = await guild.channels.create({ name: 'reception', type: ChannelType.GuildText, parent: category.id });
+                const general = await guild.channels.create({ name: 'general', type: ChannelType.GuildText, parent: category.id });
+                const anon = await guild.channels.create({ name: 'chuchotement', type: ChannelType.GuildText, parent: category.id });
+                const voice = await guild.channels.create({ name: 'vocal', type: ChannelType.GuildVoice, parent: category.id });
 
-		// Overwrites
-		await applyZoneOverwrites(category, {
-			everyoneRole: guild.roles.everyone,
-			zoneMemberRole: roleMember,
-			zoneOwnerRole: roleOwner
-		});
+                // Overwrites
+                const botMember = guild.members.me || await guild.members.fetch(this.client.user.id).catch(() => null);
+                const botRole = botMember?.roles?.highest || null;
+                await applyZoneOverwrites(
+                        category,
+                        {
+                                everyoneRole: guild.roles.everyone,
+                                zoneMemberRole: roleMember,
+                                zoneOwnerRole: roleOwner
+                        },
+                        botRole,
+                        { panel, reception, general, chuchotement: anon, voice }
+                );
 
 		// Persist
 		const [res] = await this.db.query(
@@ -55,10 +67,10 @@ class ZoneService {
 				panel.id,
 				reception.id,
 				general.id,
-				anon.id,
-				voice.id,
-				roleOwner.id,
-				roleMember.id,
+                                anon.id,
+                                voice.id,
+                                roleOwner.id,
+                                roleMember.id,
 				roleMuted.id,
 				policy
 			]
@@ -66,27 +78,53 @@ class ZoneService {
 		const zoneId = res.insertId;
 
 		await this.db.query(
-			`INSERT INTO anon_channels (zone_id, source_channel_id, webhook_id, webhook_token) VALUES (?, ?, ?, ?)`,
-			[zoneId, anon.id, null, null]
-		);
+                        `INSERT INTO anon_channels (zone_id, source_channel_id, webhook_id, webhook_token) VALUES (?, ?, ?, ?)`,
+                        [zoneId, anon.id, null, null]
+                );
 
 		// Grant roles
 		const member = await guild.members.fetch(ownerUserId).catch(() => null);
 		if (member) await member.roles.add([roleOwner, roleMember]).catch(() => {});
 
 		// Panel
-		const embed = new EmbedBuilder()
-			.setTitle(`Panneau de la zone ${name}`)
-			.setDescription('Configure la politique, gère les membres, rôles et salons via le bot.')
-			.addFields(
-				{ name: 'Politique', value: policy, inline: true },
-				{ name: 'Owner', value: `<@${ownerUserId}>`, inline: true }
-			)
-			.setTimestamp();
-		await panel.send({ content: `<@${ownerUserId}>`, embeds: [embed] }).catch(() => {});
+                const embed = new EmbedBuilder()
+                        .setTitle(`Panneau de la zone ${name}`)
+                        .setDescription('Configure la politique, gère les membres, rôles et salons via le bot.')
+                        .addFields(
+                                { name: 'Politique', value: policy, inline: true },
+                                { name: 'Owner', value: `<@${ownerUserId}>`, inline: true }
+                        )
+                        .setTimestamp();
+                await panel.send({ content: `<@${ownerUserId}>`, embeds: [embed] }).catch(() => {});
 
-		return { zoneId, slug };
-	}
+                if (this.panelService) {
+                        await this.panelService.renderInitialPanel({
+                                guild,
+                                zone: {
+                                        id: zoneId,
+                                        name,
+                                        slug,
+                                        policy,
+                                        ownerUserId,
+                                        roleOwnerId: roleOwner.id,
+                                        roleMemberId: roleMember.id,
+                                        roleMutedId: roleMuted.id,
+                                        categoryId: category.id,
+                                        panelChannelId: panel.id,
+                                        receptionChannelId: reception.id,
+                                        generalChannelId: general.id,
+                                        chuchotementChannelId: anon.id,
+                                        voiceChannelId: voice.id
+                                },
+                                roles: { owner: roleOwner, member: roleMember, muted: roleMuted },
+                                channels: { panel, reception, general, chuchotement: anon, voice, category }
+                        }).catch((err) => {
+                                this.logger?.warn({ err, zoneId }, 'Failed to render full panel');
+                        });
+                }
+
+                return { zoneId, slug };
+        }
 
 	async listZones(guildId) {
 		const [rows] = await this.db.query(

@@ -1,5 +1,5 @@
 
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, ChannelType } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, ChannelType, MessageFlags } = require('discord.js');
 
 class EventService {
 	constructor(client, db) {
@@ -27,13 +27,13 @@ class EventService {
 		const zoneId = Number(parts[3]);
 
 		const [rows] = await this.db.query('SELECT zone_id FROM event_participants WHERE event_id=? AND user_id=?', [eventId, interaction.user.id]);
-		if (rows.length && rows[0].zone_id !== zoneId) {
-			return interaction.reply({ content: 'Tu es déjà inscrit via une autre zone. Re-clique pour changer de team.', ephemeral: true });
-		}
+                if (rows.length && rows[0].zone_id !== zoneId) {
+                        return interaction.reply({ content: 'Tu es déjà inscrit via une autre zone. Re-clique pour changer de team.', flags: MessageFlags.Ephemeral });
+                }
 
-		await this.db.query('REPLACE INTO event_participants (event_id, user_id, zone_id, joined_at) VALUES (?, ?, ?, NOW())', [eventId, interaction.user.id, zoneId]);
-		return interaction.reply({ content: 'Inscription enregistrée pour cet événement.', ephemeral: true });
-	}
+                await this.db.query('REPLACE INTO event_participants (event_id, user_id, zone_id, joined_at) VALUES (?, ?, ?, NOW())', [eventId, interaction.user.id, zoneId]);
+                return interaction.reply({ content: 'Inscription enregistrée pour cet événement.', flags: MessageFlags.Ephemeral });
+        }
 
 	async startEvent(guild, eventId, name='event') {
 		const category = await guild.channels.create({ name, type: ChannelType.GuildCategory });

@@ -1,3 +1,5 @@
+const { MessageFlags } = require('discord.js');
+
 module.exports = {
 	command: 'zone',
 	subCommandGroup: 'admin',
@@ -10,6 +12,6 @@ module.exports = {
 	async execute(interaction, { services }) {
 		const requestId = interaction.options.getInteger('request_id', true);
 		await services.policy.approveRequest(requestId, interaction.user.id);
-		await interaction.reply({ content: `Demande #${requestId} approuvée.`, ephemeral: true });
-	}
+                await interaction.reply({ content: `Demande #${requestId} approuvée.`, flags: MessageFlags.Ephemeral });
+        }
 };

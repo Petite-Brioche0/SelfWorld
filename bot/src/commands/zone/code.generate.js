@@ -1,3 +1,5 @@
+const { MessageFlags } = require('discord.js');
+
 module.exports = {
 	command: 'zone',
 	subCommandGroup: 'code',
@@ -14,12 +16,12 @@ module.exports = {
 		const user = interaction.options.getUser('user', true);
 		const ttl = interaction.options.getInteger('ttl', true);
 		const zone = await services.zone.getZoneBySlug(interaction.guild.id, slug);
-		if (!zone) {
-			await interaction.reply({ content: 'Zone introuvable.', ephemeral: true });
-			return;
-		}
+                if (!zone) {
+                        await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral });
+                        return;
+                }
 		await services.zone.ensureZoneOwner(zone.id, interaction.user.id);
 		const { code, expiresAt } = await services.zone.generateJoinCode(zone.id, user.id, ttl);
-		await interaction.reply({ content: `Code pour ${user}: \`${code}\` (expire ${expiresAt.toLocaleString()}).`, ephemeral: true });
-	}
+                await interaction.reply({ content: `Code pour ${user}: \`${code}\` (expire ${expiresAt.toLocaleString()}).`, flags: MessageFlags.Ephemeral });
+        }
 };

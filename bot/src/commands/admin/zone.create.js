@@ -1,5 +1,5 @@
 
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 
 module.exports = {
 	ownerOnly: true,
@@ -21,7 +21,7 @@ module.exports = {
 		const owner = interaction.options.getUser('owner', true);
 		const policy = interaction.options.getString('policy', true);
 
-		await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
 		try {
 			const res = await ctx.services.zone.createZone(interaction.guild, { name, ownerUserId: owner.id, policy });

@@ -1,5 +1,5 @@
 
-const { InteractionType } = require('discord.js');
+const { InteractionType, MessageFlags } = require('discord.js');
 
 module.exports = {
 	name: 'interactionCreate',
@@ -18,18 +18,18 @@ module.exports = {
 			if (interaction.isChatInputCommand()) {
 				const cmd = commands.get(interaction.commandName);
 				if (!cmd) return;
-				if (cmd.ownerOnly && interaction.user.id !== ownerId) {
-					return interaction.reply({ content: 'Commande réservée à l’Owner.', ephemeral: true });
-				}
+                                if (cmd.ownerOnly && interaction.user.id !== ownerId) {
+                                        return interaction.reply({ content: 'Commande réservée à l’Owner.', flags: MessageFlags.Ephemeral });
+                                }
 				return cmd.execute(interaction, client.context);
 			}
 
 			if (interaction.isContextMenuCommand()) {
 				const cmd = context.get(interaction.commandName);
 				if (!cmd) return;
-				if (cmd.ownerOnly && interaction.user.id !== ownerId) {
-					return interaction.reply({ content: 'Commande réservée à l’Owner.', ephemeral: true });
-				}
+                                if (cmd.ownerOnly && interaction.user.id !== ownerId) {
+                                        return interaction.reply({ content: 'Commande réservée à l’Owner.', flags: MessageFlags.Ephemeral });
+                                }
 				return cmd.execute(interaction, client.context);
 			}
 
@@ -54,9 +54,9 @@ module.exports = {
 			}
 		} catch (err) {
 			console.error('[interactionCreate] error:', err);
-			if (interaction && !interaction.replied) {
-				try { await interaction.reply({ content: 'Erreur lors du traitement.', ephemeral: true }); } catch {}
-			}
+                        if (interaction && !interaction.replied) {
+                                try { await interaction.reply({ content: 'Erreur lors du traitement.', flags: MessageFlags.Ephemeral }); } catch {}
+                        }
 		}
 	}
 };

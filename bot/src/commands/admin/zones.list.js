@@ -1,5 +1,5 @@
 
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
 
 function chunk(arr, size) {
 	const out = [];
@@ -14,7 +14,7 @@ module.exports = {
 		.setDescription('Liste toutes les zones (admin only)'),
 
 	async execute(interaction, ctx) {
-		await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
 		const ownerId = ctx.config?.ownerUserId || process.env.OWNER_ID || process.env.OWNER_USER_ID;
 		if (interaction.user.id !== ownerId) {
@@ -53,7 +53,7 @@ module.exports = {
 		// Multiple pages -> send first then followups
 		await interaction.editReply({ embeds: [pages[0]] });
 		for (let i = 1; i < pages.length; i++) {
-			await interaction.followUp({ embeds: [pages[i]], ephemeral: true });
-		}
-	}
+                        await interaction.followUp({ embeds: [pages[i]], flags: MessageFlags.Ephemeral });
+                }
+        }
 };

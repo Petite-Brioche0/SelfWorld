@@ -1,3 +1,5 @@
+const { MessageFlags } = require('discord.js');
+
 module.exports = {
 	command: 'zone',
 	subCommandGroup: 'role',
@@ -14,12 +16,12 @@ module.exports = {
 		const role = interaction.options.getRole('role', true);
 		const name = interaction.options.getString('name', true).slice(0, 100);
 		const zone = await services.zone.getZoneBySlug(interaction.guild.id, slug);
-		if (!zone) {
-			await interaction.reply({ content: 'Zone introuvable.', ephemeral: true });
-			return;
-		}
+                if (!zone) {
+                        await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral });
+                        return;
+                }
 		await services.zone.ensureZoneOwner(zone.id, interaction.user.id);
 		await services.zone.renameRole(zone.id, role.id, name);
-		await interaction.reply({ content: `Rôle ${role} renommé.`, ephemeral: true });
-	}
+                await interaction.reply({ content: `Rôle ${role} renommé.`, flags: MessageFlags.Ephemeral });
+        }
 };

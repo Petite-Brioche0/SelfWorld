@@ -1,5 +1,5 @@
 
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags } = require('discord.js');
 
 class PolicyService {
 	constructor(client, db) {
@@ -40,11 +40,11 @@ class PolicyService {
 
 		const [rows] = await this.db.query('SELECT * FROM zones WHERE id=?', [zoneId]);
 		const zone = rows?.[0];
-		if (!zone) return interaction.reply({ content: 'Zone introuvable.', ephemeral: true });
+                if (!zone) return interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral });
 
-		if (interaction.user.id !== String(zone.owner_user_id)) {
-			return interaction.reply({ content: 'Seul le propriétaire de cette zone peut décider ici.', ephemeral: true });
-		}
+                if (interaction.user.id !== String(zone.owner_user_id)) {
+                        return interaction.reply({ content: 'Seul le propriétaire de cette zone peut décider ici.', flags: MessageFlags.Ephemeral });
+                }
 
 		await this.db.query('UPDATE join_requests SET status=? WHERE zone_id=? AND applicant_user_id=?',
 			[approve ? 'approved' : 'rejected', zoneId, applicant]);
@@ -60,8 +60,8 @@ class PolicyService {
 		try {
 			await interaction.update({ content: approve ? '✅ Demande approuvée' : '❌ Demande refusée', embeds: [], components: [] });
 		} catch {
-			await interaction.reply({ content: approve ? '✅ Demande approuvée' : '❌ Demande refusée', ephemeral: true });
-		}
+                        await interaction.reply({ content: approve ? '✅ Demande approuvée' : '❌ Demande refusée', flags: MessageFlags.Ephemeral });
+                }
 	}
 }
 
