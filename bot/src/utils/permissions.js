@@ -186,4 +186,42 @@ async function applyZoneOverwrites(category, { everyoneRole, zoneMemberRole, zon
         }
 }
 
-module.exports = { applyZoneOverwrites };
+async function applyPanelOverrides(panelChannel, { everyoneRole, zoneMemberRole, zoneOwnerRole }, botRole) {
+        if (!panelChannel?.permissionOverwrites) return;
+
+        const overwrites = [];
+
+        if (everyoneRole) {
+                overwrites.push({ id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+        }
+
+        if (zoneMemberRole) {
+                overwrites.push({ id: zoneMemberRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+        }
+
+        if (zoneOwnerRole) {
+                overwrites.push({
+                        id: zoneOwnerRole.id,
+                        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+                        deny: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels]
+                });
+        }
+
+        if (botRole) {
+                overwrites.push({
+                        id: botRole.id,
+                        allow: [
+                                PermissionFlagsBits.ViewChannel,
+                                PermissionFlagsBits.SendMessages,
+                                PermissionFlagsBits.ManageChannels,
+                                PermissionFlagsBits.ManageMessages,
+                                PermissionFlagsBits.ManageWebhooks,
+                                PermissionFlagsBits.ReadMessageHistory
+                        ]
+                });
+        }
+
+        await panelChannel.permissionOverwrites.set(overwrites);
+}
+
+module.exports = { applyZoneOverwrites, applyPanelOverrides };
