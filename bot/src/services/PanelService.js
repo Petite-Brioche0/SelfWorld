@@ -1,11 +1,21 @@
-const { EmbedBuilder } = require('discord.js');
+const {
+	EmbedBuilder,
+	ActionRowBuilder,
+	ButtonBuilder,
+	ButtonStyle,
+	StringSelectMenuBuilder,
+	UserSelectMenuBuilder,
+	RoleSelectMenuBuilder,
+	ChannelSelectMenuBuilder,
+	PermissionFlagsBits
+} = require('discord.js');
 
 class PanelService {
+	#schemaReady = false;
 	constructor(client, db, logger = null) {
 		this.client = client;
 		this.db = db;
 		this.logger = logger;
-		this.#schemaReady = false;
 	}
 
 	async renderInitialPanel({ zone }) {
@@ -19,57 +29,40 @@ class PanelService {
 
 	async ensurePanel(zoneRow) {
 		await this.#ensureSchema();
+		const channel = await this.#fetchChannel(zoneRow.text_panel_id);
+		if (!channel) throw new Error('panel channel missing');
 
-		if (!zoneRow?.id || !zoneRow?.text_panel_id) {
-			throw new Error('Zone data incomplete for panel ensure');
+		// ensure record
+		let [rows] = await this.db.query('SELECT * FROM panel_messages WHERE zone_id=?', [zoneRow.id]);
+		if (!rows.length) {
+			await this.db.query('INSERT INTO panel_messages(zone_id) VALUES (?)', [zoneRow.id]);
+			[rows] = await this.db.query('SELECT * FROM panel_messages WHERE zone_id=?', [zoneRow.id]);
 		}
+		let record = rows[0];
 
-		const channel = await this.#fetchPanelChannel(zoneRow.text_panel_id);
-		if (!channel) {
-			throw new Error('Panel channel introuvable');
-		}
-
-		let [rows] = await this.db.query('SELECT * FROM panel_messages WHERE zone_id = ?', [zoneRow.id]);
-		let record = rows?.[0];
-		if (!record) {
-			await this.db.query('INSERT INTO panel_messages (zone_id) VALUES (?)', [zoneRow.id]);
-			[rows] = await this.db.query('SELECT * FROM panel_messages WHERE zone_id = ?', [zoneRow.id]);
-			record = rows?.[0] || { zone_id: zoneRow.id };
-		}
-
-		const guild = await this.#fetchGuild(zoneRow.guild_id);
-
-		const sections = {
-			members: {
-				column: 'members_msg_id',
-				render: () => this.renderMembers(zoneRow, guild)
-			},
-			roles: {
-				column: 'roles_msg_id',
-				render: () => this.renderRoles(zoneRow, guild)
-			},
-			channels: {
-				column: 'channels_msg_id',
-				render: () => this.renderChannels(zoneRow, guild)
-			},
-			policy: {
-				column: 'policy_msg_id',
-				render: () => this.renderPolicy(zoneRow, guild)
-			}
+		const map = {
+			members: { column: 'members_msg_id', render: () => this.renderMembers(zoneRow) },
+			roles:   { column: 'roles_msg_id', render: () => this.renderRoles(zoneRow) },
+			channels:{ column: 'channels_msg_id', render: () => this.renderChannels(zoneRow) },
+			policy:  { column: 'policy_msg_id', render: () => this.renderPolicy(zoneRow) }
 		};
 
 		const messages = {};
 
-		for (const [key, meta] of Object.entries(sections)) {
-			let msgId = record?.[meta.column];
+		for (const [key, meta] of Object.entries(map)) {
+			const { embed, components } = await meta.render();
+			let msgId = record[meta.column];
 			let message = null;
+
 			if (msgId) {
-				message = await channel.messages.fetch(msgId).catch(() => null);
-			}
-			if (!message) {
-				const rendered = await meta.render();
-				const payload = this.#buildMessagePayload(rendered);
-				message = await channel.send(payload);
+				try {
+					message = await channel.messages.fetch(msgId);
+					await message.edit({ embeds: [embed], components });
+				} catch {
+					message = await channel.send({ embeds: [embed], components });
+				}
+			} else {
+				message = await channel.send({ embeds: [embed], components });
 				msgId = message.id;
 				await this.db.query(`UPDATE panel_messages SET ${meta.column} = ? WHERE zone_id = ?`, [msgId, zoneRow.id]);
 				record = { ...record, [meta.column]: msgId };
@@ -82,237 +75,245 @@ class PanelService {
 
 	async refresh(zoneId, sections = []) {
 		await this.#ensureSchema();
+		const zoneRow = await this.#getZone(zoneId);
+		if (!zoneRow) throw new Error('zone not found');
+		const channel = await this.#fetchChannel(zoneRow.text_panel_id);
+		if (!channel) throw new Error('panel channel missing');
 
-		const [zoneRows] = await this.db.query('SELECT * FROM zones WHERE id = ?', [zoneId]);
-		const zoneRow = zoneRows?.[0];
-		if (!zoneRow) {
-			this.logger?.warn({ zoneId }, 'panel.refresh missing zone');
-			return;
+		let [recordRows] = await this.db.query('SELECT * FROM panel_messages WHERE zone_id=?', [zoneRow.id]);
+		if (!recordRows.length) {
+			await this.db.query('INSERT INTO panel_messages(zone_id) VALUES (?)', [zoneRow.id]);
+			[recordRows] = await this.db.query('SELECT * FROM panel_messages WHERE zone_id=?', [zoneRow.id]);
 		}
+		const record = recordRows[0];
 
-		const requested = Array.isArray(sections) && sections.length
-			? new Set(sections)
-			: new Set(['members', 'roles', 'channels', 'policy']);
+		if (!sections.length) sections = ['members','roles','channels','policy'];
 
-		const guild = await this.#fetchGuild(zoneRow.guild_id);
-		const ensureResult = await this.ensurePanel(zoneRow);
-		const channel = ensureResult.channel;
-
-		const sectionMeta = {
-			members: {
-				column: 'members_msg_id',
-				render: () => this.renderMembers(zoneRow, guild)
-			},
-			roles: {
-				column: 'roles_msg_id',
-				render: () => this.renderRoles(zoneRow, guild)
-			},
-			channels: {
-				column: 'channels_msg_id',
-				render: () => this.renderChannels(zoneRow, guild)
-			},
-			policy: {
-				column: 'policy_msg_id',
-				render: () => this.renderPolicy(zoneRow, guild)
-			}
+		const map = {
+			members: { column: 'members_msg_id', render: () => this.renderMembers(zoneRow) },
+			roles:   { column: 'roles_msg_id', render: () => this.renderRoles(zoneRow) },
+			channels:{ column: 'channels_msg_id', render: () => this.renderChannels(zoneRow) },
+			policy:  { column: 'policy_msg_id', render: () => this.renderPolicy(zoneRow) }
 		};
 
-		for (const section of requested) {
-			const meta = sectionMeta[section];
+		for (const key of sections) {
+			const meta = map[key];
 			if (!meta) continue;
-
-			const rendered = await meta.render();
-			const payload = this.#buildMessagePayload(rendered);
-			const current = ensureResult.messages?.[section];
-			let message = current?.message;
-			let msgId = current?.id;
-
-			if (!message && msgId) {
-				message = await channel.messages.fetch(msgId).catch(() => null);
+			const { embed, components } = await meta.render();
+			let msgId = record[meta.column];
+			if (!msgId) {
+				const m = await channel.send({ embeds: [embed], components });
+				msgId = m.id;
+				await this.db.query(`UPDATE panel_messages SET ${meta.column}=? WHERE zone_id=?`, [msgId, zoneRow.id]);
+				continue;
 			}
-
-			if (!message) {
-				message = await channel.send(payload);
-				msgId = message.id;
-				await this.db.query(`UPDATE panel_messages SET ${meta.column} = ? WHERE zone_id = ?`, [msgId, zoneId]);
-			} else {
-				await message.edit(payload).catch(async () => {
-					try {
-						message = await channel.send(payload);
-						msgId = message.id;
-						await this.db.query(`UPDATE panel_messages SET ${meta.column} = ? WHERE zone_id = ?`, [msgId, zoneId]);
-					} catch (err) {
-						this.logger?.error({ err, zoneId, section }, 'panel.refresh edit failed');
-					}
-				});
+			try {
+				const msg = await channel.messages.fetch(msgId);
+				await msg.edit({ embeds: [embed], components });
+			} catch {
+				const m = await channel.send({ embeds: [embed], components });
+				await this.db.query(`UPDATE panel_messages SET ${meta.column}=? WHERE zone_id=?`, [m.id, zoneRow.id]);
 			}
 		}
-
-		await this.db.query('UPDATE panel_messages SET updated_at = CURRENT_TIMESTAMP WHERE zone_id = ?', [zoneId]);
 	}
 
+	// ===== Renderers
+
 	async renderMembers(zoneRow) {
-		const [rows] = await this.db.query('SELECT user_id, role FROM zone_members WHERE zone_id = ? ORDER BY role DESC, user_id', [zoneRow.id]);
-		const owners = new Set();
-		const members = [];
+		const guild = await this.client.guilds.fetch(zoneRow.guild_id);
+		const roleMemberId = zoneRow.role_member_id;
 
-		if (zoneRow.owner_user_id) owners.add(String(zoneRow.owner_user_id));
+		let members = [];
+		try {
+			const role = await guild.roles.fetch(roleMemberId);
+			if (role) members = [...role.members.values()];
+		} catch {}
 
-		for (const row of rows || []) {
-			if (row.role === 'owner') {
-				owners.add(String(row.user_id));
-			} else {
-				members.push(String(row.user_id));
-			}
-		}
+		const total = members.length;
+		const lines = total
+			? members.slice(0, 30).map(m => `• <@${m.id}>`).join('\n') + (total > 30 ? `\n… et ${total-30} autre(s)` : '')
+			: 'Aucun membre.';
 
 		const embed = new EmbedBuilder()
-			.setTitle('Membres de la zone')
-			.setDescription('Utilise `/zone member` pour inviter ou retirer des membres de ta zone.')
-			.addFields(
-				{ name: 'Owner·s', value: this.#formatMentionList([...owners], 'Aucun owner défini.'), inline: false },
-				{
-					name: `Membres (${members.length})`,
-					value: members.length ? this.#formatMentionList(members) : 'Aucun membre enregistré.',
-					inline: false
-				}
-			)
-			.setFooter({ text: 'Les membres ajoutés reçoivent automatiquement le rôle membre.' })
-			.setTimestamp();
+			.setColor(0x5865f2)
+			.setTitle('👥 Membres de la zone')
+			.setDescription(lines)
+			.setFooter({ text: `Total: ${total}` });
 
-		return { embed, components: [] };
+		const viewRow = new ActionRowBuilder().addComponents(
+			new UserSelectMenuBuilder()
+				.setCustomId(`panel:member:view:${zoneRow.id}`)
+				.setPlaceholder('Voir le profil d’un membre')
+				.setMinValues(1)
+				.setMaxValues(1)
+		);
+
+		const actionsRow = new ActionRowBuilder().addComponents(
+			new ButtonBuilder()
+				.setCustomId(`panel:member:kick:${zoneRow.id}`)
+				.setLabel('Exclure')
+				.setStyle(ButtonStyle.Danger),
+			new ButtonBuilder()
+				.setCustomId(`panel:member:assign:${zoneRow.id}`)
+				.setLabel('Attribuer un rôle')
+				.setStyle(ButtonStyle.Primary)
+		);
+
+		return { embed, components: [viewRow, actionsRow] };
 	}
 
 	async renderRoles(zoneRow) {
-		const [rows] = await this.db.query('SELECT role_id, name FROM zone_roles WHERE zone_id = ? ORDER BY name ASC', [zoneRow.id]);
+		const guild = await this.client.guilds.fetch(zoneRow.guild_id);
+		const ownerRole = await guild.roles.fetch(zoneRow.role_owner_id).catch(()=>null);
+		const memberRole = await guild.roles.fetch(zoneRow.role_member_id).catch(()=>null);
+
+		let [customs] = await this.db.query(
+			'SELECT role_id, name, color FROM zone_roles WHERE zone_id = ? ORDER BY name ASC', [zoneRow.id]
+		);
+
+		const coreLines = [
+			ownerRole ? `• Owner — <@&${ownerRole.id}>` : '• Owner — (introuvable)',
+			memberRole ? `• Member — <@&${memberRole.id}>` : '• Member — (introuvable)'
+		].join('\n');
+
+		const customLines = (customs && customs.length)
+			? customs.slice(0, 10).map(r => `• ${r.name} — <@&${r.role_id}>${r.color ? ' \`${r.color}\`' : ''}`).join('\n')
+			: 'Aucun rôle personnalisé.';
+
 		const embed = new EmbedBuilder()
-			.setTitle('Rôles de la zone')
-			.setDescription('Vue d’ensemble des rôles attribués dans ta zone.')
-			.addFields(
-				{ name: 'Owner', value: zoneRow.role_owner_id ? `<@&${zoneRow.role_owner_id}>` : '—', inline: true },
-				{ name: 'Membres', value: zoneRow.role_member_id ? `<@&${zoneRow.role_member_id}>` : '—', inline: true }
-			)
-			.setTimestamp();
+			.setColor(0x2ecc71)
+			.setTitle('🎭 Rôles de la zone')
+			.setDescription(coreLines + '\n\n__Rôles personnalisés__\n' + customLines)
+			.setFooter({ text: 'Max 10 rôles personnalisés' });
 
-		if (rows?.length) {
-			const lines = this.#formatRoleLines(rows);
-			embed.addFields({ name: `Rôles personnalisés (${rows.length})`, value: lines, inline: false });
-		} else {
-			embed.addFields({ name: 'Rôles personnalisés', value: 'Aucun rôle personnalisé enregistré.', inline: false });
-		}
+		const rowAdd = new ActionRowBuilder().addComponents(
+			new ButtonBuilder()
+				.setCustomId(`panel:role:add:${zoneRow.id}`)
+				.setLabel('Ajouter un rôle')
+				.setStyle(ButtonStyle.Success)
+		);
+		const rowEdit = new ActionRowBuilder().addComponents(
+			new RoleSelectMenuBuilder()
+				.setCustomId(`panel:role:edit:${zoneRow.id}`)
+				.setPlaceholder('Modifier un rôle (sélectionne-en un)')
+				.setMinValues(1)
+				.setMaxValues(1)
+		);
+		const rowDelete = new ActionRowBuilder().addComponents(
+			new RoleSelectMenuBuilder()
+				.setCustomId(`panel:role:delete:${zoneRow.id}`)
+				.setPlaceholder('Supprimer un rôle (custom uniquement)')
+				.setMinValues(1)
+				.setMaxValues(1)
+		);
+		const rowAssign = new ActionRowBuilder().addComponents(
+			new RoleSelectMenuBuilder()
+				.setCustomId(`panel:role:assign:role:${zoneRow.id}`)
+				.setPlaceholder('Choisir un rôle à attribuer')
+				.setMinValues(1)
+				.setMaxValues(1)
+		);
 
-		embed.setFooter({ text: 'Crée, renomme ou supprime des rôles avec `/zone role`.' });
-
-		return { embed, components: [] };
+		return { embed, components: [rowAdd, rowEdit, rowDelete, rowAssign] };
 	}
 
 	async renderChannels(zoneRow) {
-		const embed = new EmbedBuilder()
-			.setTitle('Salons de la zone')
-			.setDescription('Résumé des salons gérés automatiquement par ta zone.')
-			.addFields(
-				{ name: 'Panel', value: zoneRow.text_panel_id ? `<#${zoneRow.text_panel_id}>` : '—', inline: true },
-				{ name: 'Réception', value: zoneRow.text_reception_id ? `<#${zoneRow.text_reception_id}>` : '—', inline: true },
-				{ name: 'Général', value: zoneRow.text_general_id ? `<#${zoneRow.text_general_id}>` : '—', inline: true },
-				{ name: 'Chuchotement', value: zoneRow.text_anon_id ? `<#${zoneRow.text_anon_id}>` : '—', inline: true },
-				{ name: 'Vocal', value: zoneRow.voice_id ? `<#${zoneRow.voice_id}>` : '—', inline: true },
-				{ name: 'Catégorie', value: zoneRow.category_id ? `<#${zoneRow.category_id}>` : '—', inline: true }
-			)
-			.setFooter({ text: 'Ajoute ou renomme des salons avec `/zone channel`.' })
-			.setTimestamp();
+		const guild = await this.client.guilds.fetch(zoneRow.guild_id);
+		const category = await this.#fetchChannel(zoneRow.category_id);
+		let children = [];
+		try {
+			if (category) {
+				children = guild.channels.cache.filter(c => c.parentId === category.id).map(c => c);
+			}
+		} catch {}
 
-		return { embed, components: [] };
+		const list = children.length
+			? children.map(c => `• ${c.type === 2 ? '🔊' : '#'}${c.name} — \`${c.id}\``).join('\n')
+			: 'Aucun salon dans cette catégorie (hors panel).';
+
+		const embed = new EmbedBuilder()
+			.setColor(0xf1c40f)
+			.setTitle('🧭 Salons de la zone')
+			.setDescription(list)
+			.setFooter({ text: 'Ajoute, modifie ou supprime des salons (hors salons principaux)' });
+
+		const rowAdd = new ActionRowBuilder().addComponents(
+			new ButtonBuilder()
+				.setCustomId(`panel:ch:add:${zoneRow.id}`)
+				.setLabel('Ajouter un salon')
+				.setStyle(ButtonStyle.Success)
+		);
+		const rowEdit = new ActionRowBuilder().addComponents(
+			new ChannelSelectMenuBuilder()
+				.setCustomId(`panel:ch:edit:${zoneRow.id}`)
+				.setPlaceholder('Modifier un salon')
+				.setMinValues(1)
+				.setMaxValues(1)
+		);
+		const rowDelete = new ActionRowBuilder().addComponents(
+			new ChannelSelectMenuBuilder()
+				.setCustomId(`panel:ch:del:${zoneRow.id}`)
+				.setPlaceholder('Supprimer un salon')
+				.setMinValues(1)
+				.setMaxValues(1)
+		);
+
+		return { embed, components: [rowAdd, rowEdit, rowDelete] };
 	}
 
 	async renderPolicy(zoneRow) {
-		const policyLabels = {
-			closed: 'Fermée',
-			ask: 'Sur demande',
-			invite: 'Sur invitation',
-			open: 'Ouverte'
-		};
-
-		const policyDescriptions = {
-			closed: 'Seul l’owner peut inviter de nouveaux membres.',
-			ask: 'Les visiteurs peuvent demander l’accès via le bot.',
-			invite: 'Les membres peuvent inviter d’autres utilisateurs avec un code.',
-			open: 'Tout le monde peut rejoindre librement la zone.'
-		};
-
-		const policyKey = zoneRow.policy || 'closed';
 		const embed = new EmbedBuilder()
-			.setTitle('Politique d’entrée')
-			.setDescription(`Politique actuelle : **${policyLabels[policyKey] || policyKey}**`)
-			.addFields({
-				name: 'Description',
-				value: policyDescriptions[policyKey] || 'Politique personnalisée.'
-			})
-			.setFooter({ text: 'Modifie la politique avec `/zone policy set`.' })
-			.setTimestamp();
+			.setColor(0x3498db)
+			.setTitle('🔐 Politique d’entrée')
+			.setDescription(`Politique actuelle : **${zoneRow.policy || 'closed'}**\nTypes: \`closed\`, \`ask\`, \`invite\`, \`open\``);
 
-		return { embed, components: [] };
+		const row = new ActionRowBuilder().addComponents(
+			new StringSelectMenuBuilder()
+				.setCustomId(`panel:policy:set:${zoneRow.id}`)
+				.setPlaceholder('Changer la politique…')
+				.addOptions([
+					{ label: 'closed', value: 'closed' },
+					{ label: 'ask', value: 'ask' },
+					{ label: 'invite', value: 'invite' },
+					{ label: 'open', value: 'open' }
+				])
+		);
+
+		return { embed, components: [row] };
+	}
+
+	// ===== helpers
+
+	async #getZone(zoneId) {
+		const [rows] = await this.db.query('SELECT * FROM zones WHERE id=?', [zoneId]);
+		return rows?.[0] || null;
+	}
+
+	async #fetchChannel(id) {
+		if (!id) return null;
+		try { return await this.client.channels.fetch(id); } catch { return null; }
 	}
 
 	async #ensureSchema() {
 		if (this.#schemaReady) return;
-		await this.db.query(
-			`CREATE TABLE IF NOT EXISTS panel_messages (
-				zone_id INT NOT NULL PRIMARY KEY,
-				members_msg_id VARCHAR(32) NULL,
-				roles_msg_id VARCHAR(32) NULL,
-				channels_msg_id VARCHAR(32) NULL,
-				policy_msg_id VARCHAR(32) NULL,
-				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`
-		);
+		await this.db.query(`CREATE TABLE IF NOT EXISTS panel_messages (
+			zone_id INT NOT NULL PRIMARY KEY,
+			members_msg_id VARCHAR(32) NULL,
+			roles_msg_id VARCHAR(32) NULL,
+			channels_msg_id VARCHAR(32) NULL,
+			policy_msg_id VARCHAR(32) NULL,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+		await this.db.query(`CREATE TABLE IF NOT EXISTS zone_roles (
+			id INT AUTO_INCREMENT PRIMARY KEY,
+			zone_id INT NOT NULL,
+			role_id VARCHAR(20) NOT NULL,
+			name VARCHAR(64) NOT NULL,
+			color VARCHAR(7) NULL,
+			UNIQUE KEY uq_zone_role (zone_id, role_id),
+			INDEX ix_zone (zone_id)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
 		this.#schemaReady = true;
-	}
-
-	async #fetchPanelChannel(panelChannelId) {
-		if (!panelChannelId) return null;
-		return await this.client.channels.fetch(panelChannelId).catch(() => null);
-	}
-
-	async #fetchGuild(guildId) {
-		if (!guildId) return null;
-		return this.client.guilds.cache.get(guildId) || await this.client.guilds.fetch(guildId).catch(() => null);
-	}
-
-	#buildMessagePayload(rendered) {
-		const payload = {};
-		if (rendered?.embed) {
-			payload.embeds = [rendered.embed];
-		} else {
-			payload.embeds = [];
-		}
-		if (Array.isArray(rendered?.components) && rendered.components.length) {
-			payload.components = rendered.components;
-		} else {
-			payload.components = [];
-		}
-		return payload;
-	}
-
-	#formatMentionList(list, empty = 'Aucun élément.') {
-			if (!Array.isArray(list) || !list.length) return empty;
-			const limited = list.slice(0, 20);
-			let value = limited.map((id) => `<@${id}>`).join(', ');
-			if (list.length > limited.length) {
-				const remaining = list.length - limited.length;
-				value += ` et ${remaining} autre${remaining > 1 ? 's' : ''}…`;
-			}
-			return value;
-	}
-
-	#formatRoleLines(rows) {
-		if (!Array.isArray(rows) || !rows.length) return 'Aucun rôle personnalisé enregistré.';
-		const limited = rows.slice(0, 10);
-		let lines = limited.map((row) => `• ${row.name} — <@&${row.role_id}>`).join('\n');
-		if (rows.length > limited.length) {
-			const remaining = rows.length - limited.length;
-			lines += `\n… et ${remaining} autre${remaining > 1 ? 's' : ''}.`;
-		}
-		return lines;
 	}
 }
 
