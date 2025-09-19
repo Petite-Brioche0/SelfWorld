@@ -130,3 +130,12 @@ events_admin_channel_id VARCHAR(32) NULL,
 journal_channel_id VARCHAR(32) NULL,
 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS panel_messages (
+zone_id INT NOT NULL PRIMARY KEY,
+members_msg_id VARCHAR(32) NULL,
+roles_msg_id VARCHAR(32) NULL,
+channels_msg_id VARCHAR(32) NULL,
+policy_msg_id VARCHAR(32) NULL,
+updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

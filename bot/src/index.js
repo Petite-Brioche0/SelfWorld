@@ -15,6 +15,7 @@ const { AnonService } = require('./services/AnonService');
 const { EventService } = require('./services/EventService');
 const { ActivityService } = require('./services/ActivityService');
 const { TempGroupService } = require('./services/TempGroupService');
+const { PanelService } = require('./services/PanelService');
 
 const logger = pino({
 	level: process.env.LOG_LEVEL || 'info',
@@ -56,14 +57,17 @@ const client = new Client({
 
 		// Services
 		const pool = db.getPool();
-		const services = {
-			zone: new ZoneService(client, pool, process.env.OWNER_ID, logger),
-			policy: new PolicyService(client, pool),
-			activity: new ActivityService(client, pool),
-			anon: new AnonService(client, pool),
-			event: new EventService(client, pool),
-			tempGroup: new TempGroupService(client, pool)
-		};
+               const zoneService = new ZoneService(client, pool, process.env.OWNER_ID, logger);
+               const services = {
+                       zone: zoneService,
+                       policy: new PolicyService(client, pool),
+                       activity: new ActivityService(client, pool),
+                       anon: new AnonService(client, pool),
+                       event: new EventService(client, pool),
+                       tempGroup: new TempGroupService(client, pool)
+               };
+               services.panel = new PanelService(client, pool, logger);
+               zoneService.setPanelService(services.panel);
 
 		client.context = {
 			logger,
