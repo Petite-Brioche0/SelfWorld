@@ -30,10 +30,10 @@ class AnonService {
 		return rows?.[0]?.zone_id || null;
 	}
 
-	async #targetsExcept(zoneId) {
-		const [rows] = await this.db.query('SELECT zone_id, source_channel_id, webhook_id, webhook_token FROM anon_channels WHERE zone_id <> ?', [zoneId]);
-		return rows;
-	}
+        async #allTargets() {
+                const [rows] = await this.db.query('SELECT zone_id, source_channel_id, webhook_id, webhook_token FROM anon_channels');
+                return rows;
+        }
 
 	async #ensureWebhook(row) {
 		if (row.webhook_id && row.webhook_token) return row;
@@ -81,12 +81,13 @@ class AnonService {
 		await message.delete().catch(()=>{});
 
 		// Fan-out
-		const targets = await this.#targetsExcept(zoneId);
-		const files = message.attachments?.size ? [...message.attachments.values()].map(a => a.url) : [];
+                const targets = await this.#allTargets();
+                const files = message.attachments?.size ? [...message.attachments.values()].map(a => a.url) : [];
 
-		for (const row of targets) {
-			const hooked = await this.#ensureWebhook(row);
-			if (!hooked.webhook_id || !hooked.webhook_token) continue;
+                for (const row of targets) {
+                        if (!row || !row.source_channel_id) continue;
+                        const hooked = await this.#ensureWebhook(row);
+                        if (!hooked.webhook_id || !hooked.webhook_token) continue;
 
 			const hook = new WebhookClient({ id: hooked.webhook_id, token: hooked.webhook_token });
 			const name = this.#anonName(message.author.id, row.zone_id);

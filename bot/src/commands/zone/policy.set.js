@@ -1,3 +1,5 @@
+const { MessageFlags } = require('discord.js');
+
 const POLICIES = ['closed', 'ask', 'invite', 'open'];
 
 module.exports = {
@@ -16,12 +18,12 @@ module.exports = {
 		const slug = interaction.options.getString('slug', true);
 		const policy = interaction.options.getString('policy', true);
 		const zone = await services.zone.getZoneBySlug(interaction.guild.id, slug);
-		if (!zone) {
-			await interaction.reply({ content: 'Zone introuvable.', ephemeral: true });
-			return;
-		}
+                if (!zone) {
+                        await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral });
+                        return;
+                }
 		await services.zone.ensureZoneOwner(zone.id, interaction.user.id);
 		await services.policy.setPolicy(zone.id, policy);
-		await interaction.reply({ content: `Politique mise à jour sur \`${policy}\`.`, ephemeral: true });
-	}
+                await interaction.reply({ content: `Politique mise à jour sur \`${policy}\`.`, flags: MessageFlags.Ephemeral });
+        }
 };

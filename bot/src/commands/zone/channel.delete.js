@@ -1,3 +1,5 @@
+const { MessageFlags } = require('discord.js');
+
 module.exports = {
 	command: 'zone',
 	subCommandGroup: 'channel',
@@ -12,12 +14,12 @@ module.exports = {
 		const slug = interaction.options.getString('slug', true);
 		const channel = interaction.options.getChannel('channel', true);
 		const zone = await services.zone.getZoneBySlug(interaction.guild.id, slug);
-		if (!zone) {
-			await interaction.reply({ content: 'Zone introuvable.', ephemeral: true });
-			return;
-		}
+                if (!zone) {
+                        await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral });
+                        return;
+                }
 		await services.zone.ensureZoneOwner(zone.id, interaction.user.id);
 		await services.zone.deleteChannel(channel.id);
-		await interaction.reply({ content: `Canal ${channel.name} supprimé.`, ephemeral: true });
-	}
+                await interaction.reply({ content: `Canal ${channel.name} supprimé.`, flags: MessageFlags.Ephemeral });
+        }
 };
