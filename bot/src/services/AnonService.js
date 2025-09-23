@@ -15,10 +15,10 @@ class AnonService {
 		return crypto.createHash('sha256').update('daily-salt::' + key).digest('hex').slice(0, 16);
 	}
 
-	#buildAnonName(userId, targetZoneId, messageId) {
-	const seed = `${userId}:${targetZoneId}:${messageId}:${this.#todaySalt()}`;
-	return generateAnonName(seed);
-	}
+    #buildAnonName(userId, targetZoneId) {
+        const seed = `${userId}:${targetZoneId}:${this.#todaySalt()}`;
+        return generateAnonName(seed);
+    }
 
 	async #getZone(zoneId) {
 	const [rows] = await this.db.query(
@@ -131,7 +131,7 @@ class AnonService {
 	if (!hooked.webhook_id || !hooked.webhook_token) continue;
 	
 	const hook = new WebhookClient({ id: hooked.webhook_id, token: hooked.webhook_token });
-	const name = this.#buildAnonName(message.author.id, row.zone_id, message.id);
+        const name = this.#buildAnonName(message.author.id, row.zone_id);
 	
 	await hook.send({
 	username: name,
