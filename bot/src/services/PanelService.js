@@ -680,36 +680,83 @@ class PanelService {
 		};
 	}
 
-	async #collectZoneChannels(zoneRow) {
-		const guild = await this.client.guilds.fetch(zoneRow.guild_id);
-		const category = await this.#fetchChannel(zoneRow.category_id);
-		if (!category) {
-			return { guild, channels: [] };
-		}
+        async #collectZoneChannels(zoneRow) {
+                const guild = await this.client.guilds.fetch(zoneRow.guild_id);
+                const category = await this.#fetchChannel(zoneRow.category_id);
+                if (!category) {
+                        return { guild, channels: [] };
+                }
 
-		const protectedIds = new Set(
-			[
-				zoneRow.text_panel_id,
-				zoneRow.text_reception_id,
-				zoneRow.text_anon_id,
-				zoneRow.voice_id
-			].filter(Boolean)
-		);
+                const protectedIds = new Set(
+                        [zoneRow.text_panel_id, zoneRow.text_reception_id, zoneRow.text_anon_id].filter(Boolean)
+                );
 
-		const fetched = await guild.channels.fetch();
-		const channels = [...fetched.values()]
-			.filter((channel) => channel?.parentId === category.id)
-			.map((channel) => ({ channel, isProtected: protectedIds.has(channel.id) }))
-			.sort((a, b) => a.channel.rawPosition - b.channel.rawPosition);
+                const fetched = await guild.channels.fetch();
+                const channels = [...fetched.values()]
+                        .filter((channel) => channel?.parentId === category.id)
+                        .map((channel) => ({ channel, isProtected: protectedIds.has(channel.id) }))
+                        .sort((a, b) => a.channel.rawPosition - b.channel.rawPosition);
 
-		return { guild, channels };
-	}
+                return { guild, channels };
+        }
 
-	#buildChannelPermissionOverwrites(guild, zoneRow, channel, allowedRoleIds, botRole = null) {
-		const overwrites = [];
-		const everyoneRole = guild.roles.everyone;
-		if (everyoneRole) {
-			overwrites.push({ id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+        async #addMemberRoleRecord(zoneRow, memberId, roleId) {
+                if (!zoneRow?.id || !memberId || !roleId) return;
+                await this.db.query(
+                        'INSERT INTO zone_member_roles (zone_id, role_id, user_id) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)',
+                        [zoneRow.id, roleId, memberId]
+                );
+        }
+
+        async #removeMemberRoleRecord(zoneRow, memberId, roleId) {
+                if (!zoneRow?.id || !memberId || !roleId) return;
+                await this.db.query('DELETE FROM zone_member_roles WHERE zone_id = ? AND role_id = ? AND user_id = ?', [
+                        zoneRow.id,
+                        roleId,
+                        memberId
+                ]);
+        }
+
+        async #replaceMemberRoleRecords(zoneRow, memberId, desiredRoleIds) {
+                if (!zoneRow?.id || !memberId) return;
+                const desired = new Set((desiredRoleIds ? [...desiredRoleIds] : []).filter(Boolean));
+                const [rows] = await this.db.query(
+                        'SELECT role_id FROM zone_member_roles WHERE zone_id = ? AND user_id = ?',
+                        [zoneRow.id, memberId]
+                );
+                const current = new Set(Array.isArray(rows) ? rows.map((row) => row.role_id) : []);
+
+                const toAdd = [...desired].filter((roleId) => !current.has(roleId));
+                const toRemove = [...current].filter((roleId) => !desired.has(roleId));
+
+                for (const roleId of toAdd) {
+                        await this.#addMemberRoleRecord(zoneRow, memberId, roleId);
+                }
+
+                if (toRemove.length) {
+                        const placeholders = toRemove.map(() => '?').join(',');
+                        await this.db.query(
+                                `DELETE FROM zone_member_roles WHERE zone_id = ? AND user_id = ? AND role_id IN (${placeholders})`,
+                                [zoneRow.id, memberId, ...toRemove]
+                        );
+                }
+        }
+
+        async #removeAllMemberRoleRecords(zoneRow, memberId) {
+                if (!zoneRow?.id || !memberId) return;
+                await this.db.query('DELETE FROM zone_member_roles WHERE zone_id = ? AND user_id = ?', [zoneRow.id, memberId]);
+        }
+
+        async #removeRoleAssignments(zoneRow, roleId) {
+                if (!zoneRow?.id || !roleId) return;
+                await this.db.query('DELETE FROM zone_member_roles WHERE zone_id = ? AND role_id = ?', [zoneRow.id, roleId]);
+        }
+
+        #buildChannelPermissionOverwrites(guild, zoneRow, channel, allowedRoleIds, botRole = null) {
+                const overwrites = [];
+                const everyoneRole = guild.roles.everyone;
+                if (everyoneRole) {
+                        overwrites.push({ id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] });
 		}
 
 		const textAllow = [
@@ -778,13 +825,21 @@ class PanelService {
 		return `#${input.toUpperCase()}`;
 	}
 
-	#parseChannelType(raw) {
-		if (!raw) return null;
-		const input = raw.trim().toLowerCase();
-		if (['text', 'texte', 'txt'].includes(input)) return ChannelType.GuildText;
-		if (['voice', 'vocal', 'voc', 'voicechannel'].includes(input)) return ChannelType.GuildVoice;
-		return null;
-	}
+        #parseChannelType(raw) {
+                if (!raw) return null;
+                const input = raw.trim().toLowerCase();
+                const simplified = input
+                        .normalize('NFD')
+                        .replace(/\p{Diacritic}/gu, '')
+                        .replace(/\s+/g, '');
+                if (['text', 'texte', 'txt', 'textuel', 'salontexte', 'salontextuel'].includes(simplified)) {
+                        return ChannelType.GuildText;
+                }
+                if (['voice', 'vocal', 'voc', 'voicechannel', 'salonvocal', 'audio'].includes(simplified)) {
+                        return ChannelType.GuildVoice;
+                }
+                return null;
+        }
 
 	async #resolveZoneColor(zoneRow, guild = null) {
 		try {
@@ -851,18 +906,20 @@ class PanelService {
 					(member.roles?.cache ? [...member.roles.cache.keys()] : []).filter((id) => allowedIds.has(id))
 				);
 
-				const toAdd = [...desired].filter((id) => !current.has(id));
-				const toRemove = [...current].filter((id) => !desired.has(id));
+                                const toAdd = [...desired].filter((id) => !current.has(id));
+                                const toRemove = [...current].filter((id) => !desired.has(id));
 
-				if (toAdd.length) {
-					await member.roles.add(toAdd).catch(() => { });
-				}
-				if (toRemove.length) {
-					await member.roles.remove(toRemove).catch(() => { });
-				}
+                                if (toAdd.length) {
+                                        await member.roles.add(toAdd).catch(() => { });
+                                }
+                                if (toRemove.length) {
+                                        await member.roles.remove(toRemove).catch(() => { });
+                                }
 
-				const { embed, components } = await this.renderMembers(zoneRow, memberId, { assignMode: true });
-				await interaction.message.edit({ embeds: [embed], components }).catch(() => { });
+                                await this.#replaceMemberRoleRecords(zoneRow, memberId, desired);
+
+                                const { embed, components } = await this.renderMembers(zoneRow, memberId, { assignMode: true });
+                                await interaction.message.edit({ embeds: [embed], components }).catch(() => { });
 			} catch (err) {
 				await interaction.followUp?.({ content: 'Impossible de mettre à jour les rôles.', ephemeral: true }).catch(() => { });
 			}
@@ -899,15 +956,33 @@ class PanelService {
 				const toAdd = [...selectedIds].filter((id) => !currentAssignments.has(id));
 				const toRemove = [...currentAssignments].filter((id) => !selectedIds.has(id));
 
-				for (const memberId of toAdd) {
-					const member = zoneMemberMap.get(memberId);
-					if (member) await member.roles.add(role).catch(() => { });
-				}
+                                const addedSuccessfully = [];
+                                for (const memberId of toAdd) {
+                                        const member = zoneMemberMap.get(memberId);
+                                        if (!member) continue;
+                                        try {
+                                                await member.roles.add(role);
+                                                addedSuccessfully.push(memberId);
+                                        } catch { }
+                                }
 
-				for (const memberId of toRemove) {
-					const member = zoneMemberMap.get(memberId) || (await guild.members.fetch(memberId).catch(() => null));
-					if (member) await member.roles.remove(role).catch(() => { });
-				}
+                                const removedSuccessfully = [];
+                                for (const memberId of toRemove) {
+                                        const member = zoneMemberMap.get(memberId) || (await guild.members.fetch(memberId).catch(() => null));
+                                        if (!member) continue;
+                                        try {
+                                                await member.roles.remove(role);
+                                                removedSuccessfully.push(memberId);
+                                        } catch { }
+                                }
+
+                                for (const memberId of addedSuccessfully) {
+                                        await this.#addMemberRoleRecord(zoneRow, memberId, role.id);
+                                }
+
+                                for (const memberId of removedSuccessfully) {
+                                        await this.#removeMemberRoleRecord(zoneRow, memberId, role.id);
+                                }
 
 				const { embed, components } = await this.renderRoles(zoneRow, roleId);
 				await interaction.message.edit({ embeds: [embed], components }).catch(() => { });
@@ -1032,16 +1107,17 @@ class PanelService {
 				try {
 					const { guild } = await this.#collectZoneMembers(zoneRow);
 					const member = await guild.members.fetch(memberId).catch(() => null);
-					if (member) {
-						const roleIds = new Set();
-						if (zoneRow.role_member_id) roleIds.add(zoneRow.role_member_id);
-						if (zoneRow.role_owner_id) roleIds.add(zoneRow.role_owner_id);
-						const { customRoles } = await this.#collectZoneRoles(zoneRow);
-						for (const entry of customRoles) roleIds.add(entry.role.id);
-						await member.roles.remove([...roleIds]).catch(() => { });
-					}
-					await this.db.query('DELETE FROM zone_members WHERE zone_id = ? AND user_id = ?', [zoneRow.id, memberId]).catch(() => { });
-					await interaction.editReply({ content: `✅ <@${memberId}> a été exclu de la zone.`, components: [] }).catch(() => { });
+                                        if (member) {
+                                                const roleIds = new Set();
+                                                if (zoneRow.role_member_id) roleIds.add(zoneRow.role_member_id);
+                                                if (zoneRow.role_owner_id) roleIds.add(zoneRow.role_owner_id);
+                                                const { customRoles } = await this.#collectZoneRoles(zoneRow);
+                                                for (const entry of customRoles) roleIds.add(entry.role.id);
+                                                await member.roles.remove([...roleIds]).catch(() => { });
+                                        }
+                                        await this.#removeAllMemberRoleRecords(zoneRow, memberId).catch(() => { });
+                                        await this.db.query('DELETE FROM zone_members WHERE zone_id = ? AND user_id = ?', [zoneRow.id, memberId]).catch(() => { });
+                                        await interaction.editReply({ content: `✅ <@${memberId}> a été exclu de la zone.`, components: [] }).catch(() => { });
 					await this.refresh(zoneRow.id, ['members']);
 				} catch (err) {
 					await interaction.editReply({ content: 'Impossible d’exclure ce membre.', components: [] }).catch(() => { });
@@ -1138,16 +1214,17 @@ class PanelService {
 					await interaction.deferUpdate().catch(() => { });
 					return true;
 				}
-				await interaction.deferUpdate().catch(() => { });
-				try {
-					const { guild } = await this.#collectZoneRoles(zoneRow);
-					const role = await guild.roles.fetch(roleId).catch(() => null);
-					if (role) await role.delete(`Suppression via panneau de zone #${zoneRow.id}`).catch(() => { });
-					await this.db.query('DELETE FROM zone_roles WHERE zone_id = ? AND role_id = ?', [zoneRow.id, roleId]);
-					await this.refresh(zoneRow.id, ['roles']);
-					await interaction.followUp({ content: 'Rôle supprimé.', ephemeral: true }).catch(() => { });
-				} catch (err) {
-					await interaction.followUp({ content: 'Impossible de supprimer ce rôle.', ephemeral: true }).catch(() => { });
+                                await interaction.deferUpdate().catch(() => { });
+                                try {
+                                        const { guild } = await this.#collectZoneRoles(zoneRow);
+                                        const role = await guild.roles.fetch(roleId).catch(() => null);
+                                        if (role) await role.delete(`Suppression via panneau de zone #${zoneRow.id}`).catch(() => { });
+                                        await this.#removeRoleAssignments(zoneRow, roleId).catch(() => { });
+                                        await this.db.query('DELETE FROM zone_roles WHERE zone_id = ? AND role_id = ?', [zoneRow.id, roleId]);
+                                        await this.refresh(zoneRow.id, ['roles']);
+                                        await interaction.followUp({ content: 'Rôle supprimé.', ephemeral: true }).catch(() => { });
+                                } catch (err) {
+                                        await interaction.followUp({ content: 'Impossible de supprimer ce rôle.', ephemeral: true }).catch(() => { });
 				}
 				return true;
 			}
@@ -1451,25 +1528,31 @@ class PanelService {
 
 	async #ensureSchema() {
 		if (this.#schemaReady) return;
-		await this.db.query(`CREATE TABLE IF NOT EXISTS panel_messages (
-			zone_id INT NOT NULL PRIMARY KEY,
-			members_msg_id VARCHAR(32) NULL,
-			roles_msg_id VARCHAR(32) NULL,
-			channels_msg_id VARCHAR(32) NULL,
-			policy_msg_id VARCHAR(32) NULL,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
-		await this.db.query(`CREATE TABLE IF NOT EXISTS zone_roles (
-			id INT AUTO_INCREMENT PRIMARY KEY,
-			zone_id INT NOT NULL,
-			role_id VARCHAR(20) NOT NULL,
-			name VARCHAR(64) NOT NULL,
-			color VARCHAR(7) NULL,
-			UNIQUE KEY uq_zone_role (zone_id, role_id),
-			INDEX ix_zone (zone_id)
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
-		this.#schemaReady = true;
-	}
+                await this.db.query(`CREATE TABLE IF NOT EXISTS panel_messages (
+                        zone_id INT NOT NULL PRIMARY KEY,
+                        members_msg_id VARCHAR(32) NULL,
+                        roles_msg_id VARCHAR(32) NULL,
+                        channels_msg_id VARCHAR(32) NULL,
+                        policy_msg_id VARCHAR(32) NULL,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+                await this.db.query(`CREATE TABLE IF NOT EXISTS zone_roles (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        zone_id INT NOT NULL,
+                        role_id VARCHAR(20) NOT NULL,
+                        name VARCHAR(64) NOT NULL,
+                        color VARCHAR(7) NULL,
+                        UNIQUE KEY uq_zone_role (zone_id, role_id),
+                        INDEX ix_zone (zone_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+                await this.db.query(`CREATE TABLE IF NOT EXISTS zone_member_roles (
+                        zone_id INT NOT NULL,
+                        role_id VARCHAR(32) NOT NULL,
+                        user_id VARCHAR(32) NOT NULL,
+                        PRIMARY KEY(zone_id, role_id, user_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+                this.#schemaReady = true;
+        }
 }
 
 module.exports = { PanelService };
