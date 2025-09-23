@@ -35,8 +35,8 @@ class ZoneService {
                 const category = await guild.channels.create({ name: `z-${slug}`, type: ChannelType.GuildCategory });
                 const panel = await guild.channels.create({ name: 'panel', type: ChannelType.GuildText, parent: category.id });
                 const reception = await guild.channels.create({ name: 'reception', type: ChannelType.GuildText, parent: category.id });
-                const general = await guild.channels.create({ name: 'general', type: ChannelType.GuildText, parent: category.id });
                 const anon = await guild.channels.create({ name: 'chuchotement', type: ChannelType.GuildText, parent: category.id });
+				const general = await guild.channels.create({ name: 'general', type: ChannelType.GuildText, parent: category.id });
                 const voice = await guild.channels.create({ name: 'vocal', type: ChannelType.GuildVoice, parent: category.id });
 
                 // Overwrites
