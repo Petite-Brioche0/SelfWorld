@@ -108,8 +108,7 @@ class AnonService {
 	.addFields(
 	{ name: 'Zone', value: zoneRow ? `${zoneRow.name} (#${zoneRow.id})` : `Zone ${zoneId}` },
 	{ name: 'Auteur', value: `${message.author.tag} (${message.author.id})` },
-	{ name: 'Canal source', value: `<#${message.channelId}>` },
-	{ name: 'Message', value: message.id }
+
 	)
 	.setTimestamp(message.createdAt || new Date());
 	if (files.length) {
