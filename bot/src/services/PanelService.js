@@ -139,7 +139,7 @@ class PanelService {
 	        if (selectedMember) {
 	                embed.addFields({ name: 'Membre sélectionné', value: `<@${selectedMember.id}>`, inline: false });
 	        }
-	
+
                 const select = new StringSelectMenuBuilder()
                         .setCustomId(`panel:member:view:${zoneRow.id}`)
                         .setPlaceholder('Choisis un membre à gérer')
@@ -330,7 +330,7 @@ new ActionRowBuilder().addComponents(assignSelect)
 	value: channel.id,
 	description: channel.type === 2 ? 'Salon vocal de la zone' : 'Salon textuel de la zone'
 	}));
-	
+
         const editSelect = new StringSelectMenuBuilder()
         .setCustomId(`panel:ch:edit:${zoneRow.id}`)
         .setPlaceholder('Modifier un salon de la zone')
