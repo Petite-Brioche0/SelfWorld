@@ -170,31 +170,33 @@ class PanelService {
 		const rows = [new ActionRowBuilder().addComponents(select)];
 
 		if (selectedMember) {
-			if (assignMode) {
-				// Build multi-select of zone roles with current roles pre-selected
-				const { coreRoles, customRoles } = await this.#collectZoneRoles(zoneRow);
-				const customZoneRoles = [];
-				for (const entry of customRoles) customZoneRoles.push({ role: entry.role, description: entry.row?.name ? `Personnalisé — ${entry.row.name}` : 'Rôle personnalisé' });
+                        if (assignMode) {
+                                // Build multi-select of zone roles with current roles pre-selected
+                                const { coreRoles, customRoles } = await this.#collectZoneRoles(zoneRow);
+                                const assignableZoneRoles = customRoles.map((entry) => ({
+                                        role: entry.role,
+                                        description: entry.row?.name ? `Personnalisé — ${entry.row.name}` : 'Rôle personnalisé'
+                                }));
 
-				const memberRoleIds = new Set(selectedMember.roles.cache?.map((r) => r.id) || []);
-				// For display: include core + custom
-				const displayRoles = [];
-				if (coreRoles.owner) displayRoles.push({ role: coreRoles.owner });
-				if (coreRoles.member) displayRoles.push({ role: coreRoles.member });
-				for (const entry of customRoles) displayRoles.push({ role: entry.role });
+                                const memberRoleIds = new Set(selectedMember.roles.cache?.map((r) => r.id) || []);
+                                // For display: include core + custom
+                                const displayRoles = [];
+                                if (coreRoles.owner) displayRoles.push({ role: coreRoles.owner });
+                                if (coreRoles.member) displayRoles.push({ role: coreRoles.member });
+                                for (const entry of customRoles) displayRoles.push({ role: entry.role });
 				const currentDisplay = displayRoles.filter((zr) => memberRoleIds.has(zr.role.id));
 				const list = currentDisplay.length
 					? currentDisplay.map((zr) => `• <@&${zr.role.id}>`).join('\n')
 					: 'Aucun rôle de la zone.';
 				embed.addFields({ name: 'Rôles de la zone (actuels)', value: list, inline: false });
 
-				// Select only custom roles (core roles are managed automatically)
-				const options = customZoneRoles.slice(0, 25).map((zr) => ({
-					label: zr.role.name.slice(0, 100),
-					value: zr.role.id,
-					description: zr.description.slice(0, 100),
-					default: memberRoleIds.has(zr.role.id)
-				}));
+                                // Select zone roles excluding Owner/Member (managed automatically)
+                                const options = assignableZoneRoles.slice(0, 25).map((zr) => ({
+                                        label: zr.role.name.slice(0, 100),
+                                        value: zr.role.id,
+                                        description: zr.description.slice(0, 100),
+                                        default: memberRoleIds.has(zr.role.id)
+                                }));
 
 				const assignSelect = new StringSelectMenuBuilder()
 					.setCustomId(`panel:member:roles:${zoneRow.id}:${selectedMember.id}`)
@@ -654,13 +656,12 @@ class PanelService {
 
 	async #collectZoneRoles(zoneRow) {
 		const guild = await this.client.guilds.fetch(zoneRow.guild_id);
-		const ownerRole = await guild.roles.fetch(zoneRow.role_owner_id).catch(() => null);
-		const memberRole = await guild.roles.fetch(zoneRow.role_member_id).catch(() => null);
-
-		let [customRows] = await this.db.query(
-			'SELECT role_id, name, color FROM zone_roles WHERE zone_id = ? ORDER BY name ASC',
-			[zoneRow.id]
-		);
+                const ownerRole = await guild.roles.fetch(zoneRow.role_owner_id).catch(() => null);
+                const memberRole = await guild.roles.fetch(zoneRow.role_member_id).catch(() => null);
+                let [customRows] = await this.db.query(
+                        'SELECT role_id, name, color FROM zone_roles WHERE zone_id = ? ORDER BY name ASC',
+                        [zoneRow.id]
+                );
 		customRows = Array.isArray(customRows) ? customRows : [];
 
 		const customRoles = [];
@@ -672,10 +673,10 @@ class PanelService {
 
 		return {
 			guild,
-			coreRoles: {
-				owner: ownerRole,
-				member: memberRole
-			},
+                        coreRoles: {
+                                owner: ownerRole,
+                                member: memberRole
+                        },
 			customRoles
 		};
 	}
@@ -785,13 +786,6 @@ class PanelService {
 			overwrites.push({ id: roleId, allow });
 		}
 
-		if (zoneRow.role_muted_id) {
-			const deny = channel.type === ChannelType.GuildVoice
-				? [PermissionFlagsBits.Speak, PermissionFlagsBits.Connect]
-				: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.AddReactions];
-			overwrites.push({ id: zoneRow.role_muted_id, deny });
-		}
-
 		if (botRole) {
 			const allow = channel.type === ChannelType.GuildVoice
 				? [
@@ -898,13 +892,14 @@ class PanelService {
 				const member = members.find((m) => m.id === memberId) || (await guild.members.fetch(memberId).catch(() => null));
 				if (!member) throw new Error('member not found');
 
-				const { customRoles } = await this.#collectZoneRoles(zoneRow);
-				const allowedIds = new Set(customRoles.map((entry) => entry.role.id));
+                                const { customRoles } = await this.#collectZoneRoles(zoneRow);
+                                const assignableIds = new Set();
+                                for (const entry of customRoles) assignableIds.add(entry.role.id);
 
-				const desired = new Set(values.filter((v) => allowedIds.has(v)));
-				const current = new Set(
-					(member.roles?.cache ? [...member.roles.cache.keys()] : []).filter((id) => allowedIds.has(id))
-				);
+                                const desired = new Set(values.filter((v) => assignableIds.has(v)));
+                                const current = new Set(
+                                        (member.roles?.cache ? [...member.roles.cache.keys()] : []).filter((id) => assignableIds.has(id))
+                                );
 
                                 const toAdd = [...desired].filter((id) => !current.has(id));
                                 const toRemove = [...current].filter((id) => !desired.has(id));
@@ -1456,11 +1451,11 @@ class PanelService {
 				await interaction.reply({ content: 'Le nom du salon est requis.', ephemeral: true }).catch(() => { });
 				return true;
 			}
-			const channelType = this.#parseChannelType(typeRaw);
-			if (!channelType) {
-				await interaction.reply({ content: 'Type de salon invalide. Utilise `texte` ou `vocal`.', ephemeral: true }).catch(() => { });
-				return true;
-			}
+                        const channelType = this.#parseChannelType(typeRaw);
+                        if (channelType === null) {
+                                await interaction.reply({ content: 'Type de salon invalide. Utilise `texte` ou `vocal`.', ephemeral: true }).catch(() => { });
+                                return true;
+                        }
 			await interaction.deferReply({ ephemeral: true }).catch(() => { });
 			try {
 				const guild = await this.client.guilds.fetch(zoneRow.guild_id);

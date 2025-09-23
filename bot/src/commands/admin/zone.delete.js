@@ -52,12 +52,10 @@ module.exports = {
 			await safeDeleteChannel(chVoice);
 			await safeDeleteChannel(cat);
 
-			const rOwner = await safeFetchRole(guild, zone.role_owner_id);
-			const rMember = await safeFetchRole(guild, zone.role_member_id);
-			const rMuted = await safeFetchRole(guild, zone.role_muted_id);
-			await safeDeleteRole(rOwner);
-			await safeDeleteRole(rMember);
-			await safeDeleteRole(rMuted);
+                        const rOwner = await safeFetchRole(guild, zone.role_owner_id);
+                        const rMember = await safeFetchRole(guild, zone.role_member_id);
+                        await safeDeleteRole(rOwner);
+                        await safeDeleteRole(rMember);
 
 			// Nettoyage DB (défensif : on teste d’abord la présence des colonnes)
 			await ctx.pool.query('DELETE FROM anon_channels WHERE zone_id=?', [zoneId]).catch(()=>{});

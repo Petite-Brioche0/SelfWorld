@@ -29,9 +29,7 @@ class ZoneService {
 		// Roles
                 const roleOwner = await guild.roles.create({ name: `O-${slug}`, mentionable: false, permissions: [] });
                 const roleMember = await guild.roles.create({ name: `M-${slug}`, mentionable: false, permissions: [] });
-                const roleMuted = await guild.roles.create({ name: `ZoneMuted-${slug}`, mentionable: false, permissions: [] });
-
-		// Category + channels
+                // Category + channels
                 const category = await guild.channels.create({ name: `z-${slug}`, type: ChannelType.GuildCategory });
                 const panel = await guild.channels.create({ name: 'panel', type: ChannelType.GuildText, parent: category.id });
                 const reception = await guild.channels.create({ name: 'reception', type: ChannelType.GuildText, parent: category.id });
@@ -56,7 +54,7 @@ class ZoneService {
 		// Persist
 		const [res] = await this.db.query(
 			`INSERT INTO zones (guild_id, name, slug, owner_user_id, category_id, text_panel_id, text_reception_id,
-			text_general_id, text_anon_id, voice_id, role_owner_id, role_member_id, role_muted_id, policy, created_at)
+                        text_general_id, text_anon_id, voice_id, role_owner_id, role_member_id, role_muted_id, policy, created_at)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
 			[
 				guild.id,
@@ -71,7 +69,7 @@ class ZoneService {
                                 voice.id,
                                 roleOwner.id,
                                 roleMember.id,
-				roleMuted.id,
+                                null,
 				policy
 			]
 		);
@@ -108,7 +106,6 @@ class ZoneService {
                                         ownerUserId,
                                         roleOwnerId: roleOwner.id,
                                         roleMemberId: roleMember.id,
-                                        roleMutedId: roleMuted.id,
                                         categoryId: category.id,
                                         panelChannelId: panel.id,
                                         receptionChannelId: reception.id,
@@ -116,7 +113,7 @@ class ZoneService {
                                         chuchotementChannelId: anon.id,
                                         voiceChannelId: voice.id
                                 },
-                                roles: { owner: roleOwner, member: roleMember, muted: roleMuted },
+                                roles: { owner: roleOwner, member: roleMember },
                                 channels: { panel, reception, general, chuchotement: anon, voice, category }
                         }).catch((err) => {
                                 this.logger?.warn({ err, zoneId }, 'Failed to render full panel');
@@ -189,9 +186,8 @@ class ZoneService {
 		await this.#safeDeleteChannel(guild, zone.text_anon_id, reason);
 		await this.#safeDeleteChannel(guild, zone.voice_id, reason);
 
-		await this.#safeDeleteRole(guild, zone.role_owner_id, reason);
-		await this.#safeDeleteRole(guild, zone.role_member_id, reason);
-		await this.#safeDeleteRole(guild, zone.role_muted_id, reason);
+                await this.#safeDeleteRole(guild, zone.role_owner_id, reason);
+                await this.#safeDeleteRole(guild, zone.role_member_id, reason);
 
 		await this.#deleteZoneRecords(zoneId);
 
