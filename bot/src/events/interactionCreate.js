@@ -56,12 +56,15 @@ module.exports = {
                                 }
                         }
 
-			if (interaction.type === InteractionType.ModalSubmit) {
-				const id = interaction.customId || '';
-				if (id.startsWith('zone:request:')) {
-					return services.zone.handleZoneRequestModal(interaction);
-				}
-			}
+if (interaction.type === InteractionType.ModalSubmit) {
+const id = interaction.customId || '';
+if (id.startsWith('zone:request:')) {
+return services.zone.handleZoneRequestModal(interaction);
+}
+if (id.startsWith('panel:')) {
+return services.panel.handleModal(interaction);
+}
+}
 		} catch (err) {
 			console.error('[interactionCreate] error:', err);
                         if (interaction && !interaction.replied) {
