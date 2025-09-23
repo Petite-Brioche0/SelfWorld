@@ -33,18 +33,28 @@ module.exports = {
 				return cmd.execute(interaction, client.context);
 			}
 
-			if (interaction.isButton()) {
-				const id = interaction.customId || '';
-				if (id.startsWith('zone:approve:') || id.startsWith('zone:reject:')) {
-					return services.policy.handleApprovalButton(interaction);
-				}
-				if (id.startsWith('temp:extend:') || id.startsWith('temp:delete:')) {
-					return services.tempGroup.handleArchiveButtons(interaction);
-				}
-				if (id.startsWith('event:join:')) {
-					return services.event.handleJoinButton(interaction);
-				}
-			}
+                        if (interaction.isStringSelectMenu()) {
+                                const id = interaction.customId || '';
+                                if (id.startsWith('panel:')) {
+                                        return services.panel.handleSelectMenu(interaction);
+                                }
+                        }
+
+                        if (interaction.isButton()) {
+                                const id = interaction.customId || '';
+                                if (id.startsWith('zone:approve:') || id.startsWith('zone:reject:')) {
+                                        return services.policy.handleApprovalButton(interaction);
+                                }
+                                if (id.startsWith('temp:extend:') || id.startsWith('temp:delete:')) {
+                                        return services.tempGroup.handleArchiveButtons(interaction);
+                                }
+                                if (id.startsWith('event:join:')) {
+                                        return services.event.handleJoinButton(interaction);
+                                }
+                                if (id.startsWith('panel:')) {
+                                        return services.panel.handleButton(interaction);
+                                }
+                        }
 
 			if (interaction.type === InteractionType.ModalSubmit) {
 				const id = interaction.customId || '';
