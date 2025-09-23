@@ -120,7 +120,7 @@ class PanelService {
 
 	// ===== Renderers
 
-	async renderMembers(zoneRow, selectedMemberId = null, { assignMode = false } = {}) {
+    async renderMembers(zoneRow, selectedMemberId = null) {
 		const { guild, members } = await this.#collectZoneMembers(zoneRow);
 		let selectedMember = null;
 		if (selectedMemberId) {
@@ -169,79 +169,73 @@ class PanelService {
 
 		const rows = [new ActionRowBuilder().addComponents(select)];
 
-		if (selectedMember) {
-                        if (assignMode) {
-                                // Build multi-select of zone roles with current roles pre-selected
-                                const { coreRoles, customRoles } = await this.#collectZoneRoles(zoneRow);
-                                const assignableZoneRoles = customRoles.map((entry) => ({
+                if (selectedMember) {
+                        // Build multi-select of zone roles with current roles pre-selected
+                        const { coreRoles, customRoles } = await this.#collectZoneRoles(zoneRow);
+                        const assignableZoneRoles = [];
+                        if (coreRoles.owner) {
+                                assignableZoneRoles.push({ role: coreRoles.owner, description: 'Rôle propriétaire' });
+                        }
+                        if (coreRoles.member) {
+                                assignableZoneRoles.push({ role: coreRoles.member, description: 'Rôle membre' });
+                        }
+                        for (const entry of customRoles) {
+                                assignableZoneRoles.push({
                                         role: entry.role,
                                         description: entry.row?.name ? `Personnalisé — ${entry.row.name}` : 'Rôle personnalisé'
-                                }));
+                                });
+                        }
 
-                                const memberRoleIds = new Set(selectedMember.roles.cache?.map((r) => r.id) || []);
-                                // For display: include core + custom
-                                const displayRoles = [];
-                                if (coreRoles.owner) displayRoles.push({ role: coreRoles.owner });
-                                if (coreRoles.member) displayRoles.push({ role: coreRoles.member });
-                                for (const entry of customRoles) displayRoles.push({ role: entry.role });
-				const currentDisplay = displayRoles.filter((zr) => memberRoleIds.has(zr.role.id));
-				const list = currentDisplay.length
-					? currentDisplay.map((zr) => `• <@&${zr.role.id}>`).join('\n')
-					: 'Aucun rôle de la zone.';
-				embed.addFields({ name: 'Rôles de la zone (actuels)', value: list, inline: false });
+                        const memberRoleIds = new Set(selectedMember.roles.cache?.map((r) => r.id) || []);
+                        // For display: include core + custom
+                        const displayRoles = [];
+                        if (coreRoles.owner) displayRoles.push({ role: coreRoles.owner });
+                        if (coreRoles.member) displayRoles.push({ role: coreRoles.member });
+                        for (const entry of customRoles) displayRoles.push({ role: entry.role });
+                        const currentDisplay = displayRoles.filter((zr) => memberRoleIds.has(zr.role.id));
+                        const list = currentDisplay.length
+                                ? currentDisplay.map((zr) => `• <@&${zr.role.id}>`).join('\n')
+                                : 'Aucun rôle de la zone.';
+                        embed.addFields({ name: 'Rôles de la zone (actuels)', value: list, inline: false });
 
-                                // Select zone roles excluding Owner/Member (managed automatically)
-                                const options = assignableZoneRoles.slice(0, 25).map((zr) => ({
-                                        label: zr.role.name.slice(0, 100),
-                                        value: zr.role.id,
-                                        description: zr.description.slice(0, 100),
-                                        default: memberRoleIds.has(zr.role.id)
-                                }));
+                        // Select zone roles
+                        const options = assignableZoneRoles.slice(0, 25).map((zr) => ({
+                                label: zr.role.name.slice(0, 100),
+                                value: zr.role.id,
+                                description: zr.description?.slice(0, 100),
+                                default: memberRoleIds.has(zr.role.id)
+                        }));
 
-				const assignSelect = new StringSelectMenuBuilder()
-					.setCustomId(`panel:member:roles:${zoneRow.id}:${selectedMember.id}`)
-					.setPlaceholder('Sélectionne les rôles de la zone')
-					.setMinValues(0)
-					.setMaxValues(Math.min(25, options.length || 1));
+                        const assignSelect = new StringSelectMenuBuilder()
+                                .setCustomId(`panel:member:roles:${zoneRow.id}:${selectedMember.id}`)
+                                .setPlaceholder('Sélectionne les rôles de la zone')
+                                .setMinValues(0)
+                                .setMaxValues(Math.min(25, Math.max(options.length, 1)));
 
-				if (options.length) {
-					assignSelect.addOptions(options);
-				} else {
-					assignSelect
-						.setPlaceholder('Aucun rôle disponible')
-						.setDisabled(true)
-						.addOptions({ label: 'Aucun rôle', value: 'noop' });
-				}
-				rows.push(new ActionRowBuilder().addComponents(assignSelect));
+                        if (options.length) {
+                                assignSelect.addOptions(options);
+                        } else {
+                                assignSelect
+                                        .setPlaceholder('Aucun rôle disponible')
+                                        .setDisabled(true)
+                                        .addOptions({ label: 'Aucun rôle', value: 'noop' });
+                        }
+                        rows.push(new ActionRowBuilder().addComponents(assignSelect));
 
-				// Actions row (keep Kick + Back)
-				rows.push(
-					new ActionRowBuilder().addComponents(
-						new ButtonBuilder()
-							.setCustomId(`panel:member:kick:${zoneRow.id}:${selectedMember.id}`)
-							.setLabel('Exclure')
-							.setStyle(ButtonStyle.Danger),
-						new ButtonBuilder()
-							.setCustomId(`panel:member:view:${zoneRow.id}`)
-							.setLabel('Retour')
-							.setStyle(ButtonStyle.Secondary)
-					)
-				);
-			} else {
-				rows.push(
-					new ActionRowBuilder().addComponents(
-						new ButtonBuilder()
-							.setCustomId(`panel:member:kick:${zoneRow.id}:${selectedMember.id}`)
-							.setLabel('Exclure')
-							.setStyle(ButtonStyle.Danger),
-						new ButtonBuilder()
-							.setCustomId(`panel:member:assign:${zoneRow.id}:${selectedMember.id}`)
-							.setLabel('Attribuer un rôle')
-							.setStyle(ButtonStyle.Primary)
-					)
-				);
-			}
-		}
+                        // Actions row (keep Kick + Back)
+                        rows.push(
+                                new ActionRowBuilder().addComponents(
+                                        new ButtonBuilder()
+                                                .setCustomId(`panel:member:kick:${zoneRow.id}:${selectedMember.id}`)
+                                                .setLabel('Exclure')
+                                                .setStyle(ButtonStyle.Danger),
+                                        new ButtonBuilder()
+                                                .setCustomId(`panel:member:view:${zoneRow.id}`)
+                                                .setLabel('Retour')
+                                                .setStyle(ButtonStyle.Secondary)
+                                )
+                        );
+                }
 
 		return { embed, components: rows };
 	}
@@ -743,6 +737,28 @@ class PanelService {
                 }
         }
 
+        async #syncZoneMembership(zoneRow, memberId, { hasOwnerRole = false, hasMemberRole = false } = {}) {
+                if (!zoneRow?.id || !memberId) return;
+
+                if (hasOwnerRole) {
+                        await this.db.query(
+                                'INSERT INTO zone_members (zone_id, user_id, role) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE role = VALUES(role)',
+                                [zoneRow.id, memberId, 'owner']
+                        );
+                        return;
+                }
+
+                if (hasMemberRole) {
+                        await this.db.query(
+                                'INSERT INTO zone_members (zone_id, user_id, role) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE role = VALUES(role)',
+                                [zoneRow.id, memberId, 'member']
+                        );
+                        return;
+                }
+
+                await this.db.query('DELETE FROM zone_members WHERE zone_id = ? AND user_id = ?', [zoneRow.id, memberId]);
+        }
+
         async #removeAllMemberRoleRecords(zoneRow, memberId) {
                 if (!zoneRow?.id || !memberId) return;
                 await this.db.query('DELETE FROM zone_member_roles WHERE zone_id = ? AND user_id = ?', [zoneRow.id, memberId]);
@@ -879,24 +895,34 @@ class PanelService {
 			return true;
 		}
 
-		if (parts[1] === 'member' && parts[2] === 'roles') {
-			const memberId = parts[4];
-			if (!memberId) {
-				await interaction.reply({ content: 'Membre invalide.', ephemeral: true }).catch(() => { });
-				return true;
-			}
-			const values = interaction.values || [];
-			await interaction.deferUpdate().catch(() => { });
-			try {
-				const { guild, members } = await this.#collectZoneMembers(zoneRow);
-				const member = members.find((m) => m.id === memberId) || (await guild.members.fetch(memberId).catch(() => null));
-				if (!member) throw new Error('member not found');
+                if (parts[1] === 'member' && parts[2] === 'roles') {
+                        const memberId = parts[4];
+                        if (!memberId) {
+                                await interaction.reply({ content: 'Membre invalide.', ephemeral: true }).catch(() => { });
+                                return true;
+                        }
+                        const values = interaction.values || [];
+                        await interaction.deferUpdate().catch(() => { });
+                        try {
+                                const { guild, members } = await this.#collectZoneMembers(zoneRow);
+                                const member = members.find((m) => m.id === memberId) || (await guild.members.fetch(memberId).catch(() => null));
+                                if (!member) throw new Error('member not found');
 
-                                const { customRoles } = await this.#collectZoneRoles(zoneRow);
+                                const { coreRoles, customRoles } = await this.#collectZoneRoles(zoneRow);
                                 const assignableIds = new Set();
-                                for (const entry of customRoles) assignableIds.add(entry.role.id);
+                                const customAssignableIds = new Set();
+                                if (coreRoles.owner) assignableIds.add(coreRoles.owner.id);
+                                if (coreRoles.member) assignableIds.add(coreRoles.member.id);
+                                for (const entry of customRoles) {
+                                        assignableIds.add(entry.role.id);
+                                        customAssignableIds.add(entry.role.id);
+                                }
 
                                 const desired = new Set(values.filter((v) => assignableIds.has(v)));
+                                if (coreRoles.owner && desired.has(coreRoles.owner.id) && coreRoles.member) {
+                                        desired.add(coreRoles.member.id);
+                                }
+
                                 const current = new Set(
                                         (member.roles?.cache ? [...member.roles.cache.keys()] : []).filter((id) => assignableIds.has(id))
                                 );
@@ -911,15 +937,27 @@ class PanelService {
                                         await member.roles.remove(toRemove).catch(() => { });
                                 }
 
-                                await this.#replaceMemberRoleRecords(zoneRow, memberId, desired);
+                                const refreshed = await guild.members.fetch(memberId).catch(() => null);
+                                const snapshot = refreshed || member;
+                                const updatedRoleIds = new Set(
+                                        snapshot.roles?.cache ? [...snapshot.roles.cache.keys()].filter((id) => assignableIds.has(id)) : []
+                                );
+                                const hasOwnerRole = coreRoles.owner ? updatedRoleIds.has(coreRoles.owner.id) : false;
+                                const hasMemberRole = coreRoles.member ? updatedRoleIds.has(coreRoles.member.id) : false;
+                                const desiredCustomRoles = new Set(
+                                        [...updatedRoleIds].filter((id) => customAssignableIds.has(id))
+                                );
 
-                                const { embed, components } = await this.renderMembers(zoneRow, memberId, { assignMode: true });
+                                await this.#replaceMemberRoleRecords(zoneRow, memberId, desiredCustomRoles);
+                                await this.#syncZoneMembership(zoneRow, memberId, { hasOwnerRole, hasMemberRole });
+
+                                const { embed, components } = await this.renderMembers(zoneRow, memberId);
                                 await interaction.message.edit({ embeds: [embed], components }).catch(() => { });
-			} catch (err) {
-				await interaction.followUp?.({ content: 'Impossible de mettre à jour les rôles.', ephemeral: true }).catch(() => { });
-			}
-			return true;
-		}
+                        } catch (err) {
+                                await interaction.followUp?.({ content: 'Impossible de mettre à jour les rôles.', ephemeral: true }).catch(() => { });
+                        }
+                        return true;
+                }
 
 		if (parts[1] === 'role' && parts[2] === 'select') {
 			const selectedRoleId = interaction.values?.[0] || null;
@@ -1051,17 +1089,11 @@ class PanelService {
 			return true;
 		}
 
-		if (parts[1] === 'member') {
-			const memberId = parts[4];
-			if (parts[2] === 'assign') {
-				const { embed, components } = await this.renderMembers(zoneRow, memberId, { assignMode: true });
-				await interaction.update({ embeds: [embed], components }).catch(() => { });
-				return true;
-			}
-
+                if (parts[1] === 'member') {
+                        const memberId = parts[4];
 			if (parts[2] === 'view') {
-				const targetId = parts[4] || null;
-				const { embed, components } = await this.renderMembers(zoneRow, targetId);
+                                const targetId = parts[4] || null;
+                                const { embed, components } = await this.renderMembers(zoneRow, targetId);
 				await interaction.update({ embeds: [embed], components }).catch(() => { });
 				return true;
 			}
