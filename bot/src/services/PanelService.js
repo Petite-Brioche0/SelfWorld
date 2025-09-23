@@ -120,7 +120,7 @@ class PanelService {
 
 	// ===== Renderers
 
-    async renderMembers(zoneRow, selectedMemberId = null) {
+        async renderMembers(zoneRow, selectedMemberId = null) {
 		const { guild, members } = await this.#collectZoneMembers(zoneRow);
 		let selectedMember = null;
 		if (selectedMemberId) {
@@ -172,19 +172,15 @@ class PanelService {
                 if (selectedMember) {
                         // Build multi-select of zone roles with current roles pre-selected
                         const { coreRoles, customRoles } = await this.#collectZoneRoles(zoneRow);
-                        const assignableZoneRoles = [];
-                        if (coreRoles.owner) {
-                                assignableZoneRoles.push({ role: coreRoles.owner, description: 'Rôle propriétaire' });
-                        }
-                        if (coreRoles.member) {
-                                assignableZoneRoles.push({ role: coreRoles.member, description: 'Rôle membre' });
-                        }
-                        for (const entry of customRoles) {
-                                assignableZoneRoles.push({
-                                        role: entry.role,
-                                        description: entry.row?.name ? `Personnalisé — ${entry.row.name}` : 'Rôle personnalisé'
-                                });
-                        }
+                        const assignableZoneRoles = customRoles.map((entry) => ({
+                                role: entry.role,
+                                description: entry.row?.name ? `Personnalisé — ${entry.row.name}` : 'Rôle personnalisé'
+                        }));
+                        embed.setDescription(
+                                assignableZoneRoles.length
+                                        ? 'Gère les rôles de ce membre grâce au menu ci-dessous.'
+                                        : 'Aucun rôle personnalisable à attribuer pour cette zone.'
+                        );
 
                         const memberRoleIds = new Set(selectedMember.roles.cache?.map((r) => r.id) || []);
                         // For display: include core + custom
@@ -198,11 +194,11 @@ class PanelService {
                                 : 'Aucun rôle de la zone.';
                         embed.addFields({ name: 'Rôles de la zone (actuels)', value: list, inline: false });
 
-                        // Select zone roles
+                        // Select zone roles excluding Owner/Member (managed automatically)
                         const options = assignableZoneRoles.slice(0, 25).map((zr) => ({
                                 label: zr.role.name.slice(0, 100),
                                 value: zr.role.id,
-                                description: zr.description?.slice(0, 100),
+                                description: zr.description.slice(0, 100),
                                 default: memberRoleIds.has(zr.role.id)
                         }));
 
@@ -210,7 +206,7 @@ class PanelService {
                                 .setCustomId(`panel:member:roles:${zoneRow.id}:${selectedMember.id}`)
                                 .setPlaceholder('Sélectionne les rôles de la zone')
                                 .setMinValues(0)
-                                .setMaxValues(Math.min(25, Math.max(options.length, 1)));
+                                .setMaxValues(Math.min(25, options.length || 1));
 
                         if (options.length) {
                                 assignSelect.addOptions(options);
@@ -237,8 +233,8 @@ class PanelService {
                         );
                 }
 
-		return { embed, components: rows };
-	}
+                return { embed, components: rows };
+        }
 
 	async renderRoles(zoneRow, selectedRoleId = null, { confirmDeleteFor = null } = {}) {
 		const { guild, customRoles, coreRoles } = await this.#collectZoneRoles(zoneRow);
@@ -769,12 +765,12 @@ class PanelService {
                 await this.db.query('DELETE FROM zone_member_roles WHERE zone_id = ? AND role_id = ?', [zoneRow.id, roleId]);
         }
 
-        #buildChannelPermissionOverwrites(guild, zoneRow, channel, allowedRoleIds, botRole = null) {
+        #buildChannelPermissionOverwrites(guild, zoneRow, channel, allowedRoleIds, botRole = null, { denyRoleIds = [] } = {}) {
                 const overwrites = [];
                 const everyoneRole = guild.roles.everyone;
                 if (everyoneRole) {
                         overwrites.push({ id: everyoneRole.id, deny: [PermissionFlagsBits.ViewChannel] });
-		}
+                }
 
 		const textAllow = [
 			PermissionFlagsBits.ViewChannel,
@@ -794,18 +790,31 @@ class PanelService {
 			overwrites.push({ id: zoneRow.role_owner_id, allow: ownerAllow });
 		}
 
-		const unique = new Set(allowedRoleIds || []);
-		unique.delete(zoneRow.role_owner_id);
-		for (const roleId of unique) {
-			if (!roleId) continue;
-			const allow = channel.type === ChannelType.GuildVoice ? voiceAllow : textAllow;
-			overwrites.push({ id: roleId, allow });
-		}
+                const unique = new Set(allowedRoleIds || []);
+                unique.delete(zoneRow.role_owner_id);
+                for (const roleId of unique) {
+                        if (!roleId) continue;
+                        const allow = channel.type === ChannelType.GuildVoice ? voiceAllow : textAllow;
+                        overwrites.push({ id: roleId, allow });
+                }
 
-		if (botRole) {
-			const allow = channel.type === ChannelType.GuildVoice
-				? [
-					PermissionFlagsBits.ViewChannel,
+                const denyBase = [PermissionFlagsBits.ViewChannel];
+                if (channel.type === ChannelType.GuildVoice) {
+                        denyBase.push(PermissionFlagsBits.Connect);
+                }
+
+                const denySet = new Set(denyRoleIds || []);
+                denySet.delete(zoneRow.role_owner_id);
+                for (const roleId of denySet) {
+                        if (!roleId) continue;
+                        if (unique.has(roleId)) continue;
+                        overwrites.push({ id: roleId, deny: denyBase });
+                }
+
+                if (botRole) {
+                        const allow = channel.type === ChannelType.GuildVoice
+                                ? [
+                                        PermissionFlagsBits.ViewChannel,
 					PermissionFlagsBits.Connect,
 					PermissionFlagsBits.Speak,
 					PermissionFlagsBits.MoveMembers,
@@ -951,7 +960,7 @@ class PanelService {
                                 await this.#replaceMemberRoleRecords(zoneRow, memberId, desiredCustomRoles);
                                 await this.#syncZoneMembership(zoneRow, memberId, { hasOwnerRole, hasMemberRole });
 
-                                const { embed, components } = await this.renderMembers(zoneRow, memberId);
+                        const { embed, components } = await this.renderMembers(zoneRow, memberId);
                                 await interaction.message.edit({ embeds: [embed], components }).catch(() => { });
                         } catch (err) {
                                 await interaction.followUp?.({ content: 'Impossible de mettre à jour les rôles.', ephemeral: true }).catch(() => { });
@@ -1044,18 +1053,29 @@ class PanelService {
 				const channel = await guild.channels.fetch(channelId).catch(() => null);
 				if (!channel) throw new Error('channel not found');
 
-				const { coreRoles, customRoles } = await this.#collectZoneRoles(zoneRow);
-				const validRoleIds = new Set();
-				if (coreRoles.member) validRoleIds.add(coreRoles.member.id);
-				for (const entry of customRoles) validRoleIds.add(entry.role.id);
+                                const { coreRoles, customRoles } = await this.#collectZoneRoles(zoneRow);
+                                const validRoleIds = new Set();
+                                const denyRoleIds = new Set();
+                                if (coreRoles.member) {
+                                        validRoleIds.add(coreRoles.member.id);
+                                        denyRoleIds.add(coreRoles.member.id);
+                                } else if (zoneRow.role_member_id) {
+                                        denyRoleIds.add(zoneRow.role_member_id);
+                                }
+                                for (const entry of customRoles) {
+                                        validRoleIds.add(entry.role.id);
+                                        denyRoleIds.add(entry.role.id);
+                                }
 
-				const selectedIds = new Set((interaction.values || []).filter((value) => validRoleIds.has(value)));
-				if (zoneRow.role_owner_id) selectedIds.add(zoneRow.role_owner_id);
+                                const selectedIds = new Set((interaction.values || []).filter((value) => validRoleIds.has(value)));
+                                if (zoneRow.role_owner_id) selectedIds.add(zoneRow.role_owner_id);
 
-				const botMember = guild.members.me || (await guild.members.fetch(this.client.user.id).catch(() => null));
-				const botRole = botMember?.roles?.highest || null;
+                                const botMember = guild.members.me || (await guild.members.fetch(this.client.user.id).catch(() => null));
+                                const botRole = botMember?.roles?.highest || null;
 
-				const overwrites = this.#buildChannelPermissionOverwrites(guild, zoneRow, channel, selectedIds, botRole);
+                                const overwrites = this.#buildChannelPermissionOverwrites(guild, zoneRow, channel, selectedIds, botRole, {
+                                        denyRoleIds: [...denyRoleIds]
+                                });
 				await channel.permissionOverwrites.set(overwrites);
 
 				const { embed, components } = await this.renderChannels(zoneRow, channelId);
@@ -1089,8 +1109,14 @@ class PanelService {
 			return true;
 		}
 
-                if (parts[1] === 'member') {
-                        const memberId = parts[4];
+		if (parts[1] === 'member') {
+			const memberId = parts[4];
+			if (parts[2] === 'assign') {
+                                const { embed, components } = await this.renderMembers(zoneRow, memberId);
+				await interaction.update({ embeds: [embed], components }).catch(() => { });
+				return true;
+			}
+
 			if (parts[2] === 'view') {
                                 const targetId = parts[4] || null;
                                 const { embed, components } = await this.renderMembers(zoneRow, targetId);
@@ -1490,19 +1516,33 @@ class PanelService {
                         }
 			await interaction.deferReply({ ephemeral: true }).catch(() => { });
 			try {
-				const guild = await this.client.guilds.fetch(zoneRow.guild_id);
-				const channel = await guild.channels.create({
-					name: nameRaw.slice(0, 100),
-					type: channelType,
-					parent: zoneRow.category_id,
-					topic: channelType === ChannelType.GuildText ? (description || undefined) : undefined,
-					reason: `Création via panneau de zone #${zoneRow.id}`
-				});
-				const botMember = guild.members.me || (await guild.members.fetch(this.client.user.id).catch(() => null));
-				const botRole = botMember?.roles?.highest || null;
-				const allowed = new Set();
-				if (zoneRow.role_owner_id) allowed.add(zoneRow.role_owner_id);
-				const overwrites = this.#buildChannelPermissionOverwrites(guild, zoneRow, channel, allowed, botRole);
+                                const { guild, customRoles, coreRoles } = await this.#collectZoneRoles(zoneRow);
+                                const channel = await guild.channels.create({
+                                        name: nameRaw.slice(0, 100),
+                                        type: channelType,
+                                        parent: zoneRow.category_id,
+                                        topic: channelType === ChannelType.GuildText ? (description || undefined) : undefined,
+                                        reason: `Création via panneau de zone #${zoneRow.id}`
+                                });
+                                const botMember = guild.members.me || (await guild.members.fetch(this.client.user.id).catch(() => null));
+                                const botRole = botMember?.roles?.highest || null;
+                                const allowed = new Set();
+                                if (zoneRow.role_owner_id) allowed.add(zoneRow.role_owner_id);
+                                if (coreRoles.member) {
+                                        allowed.add(coreRoles.member.id);
+                                } else if (zoneRow.role_member_id) {
+                                        allowed.add(zoneRow.role_member_id);
+                                }
+                                const denyRoleIds = new Set();
+                                if (coreRoles.member) {
+                                        denyRoleIds.add(coreRoles.member.id);
+                                } else if (zoneRow.role_member_id) {
+                                        denyRoleIds.add(zoneRow.role_member_id);
+                                }
+                                for (const entry of customRoles) denyRoleIds.add(entry.role.id);
+                                const overwrites = this.#buildChannelPermissionOverwrites(guild, zoneRow, channel, allowed, botRole, {
+                                        denyRoleIds: [...denyRoleIds]
+                                });
 				await channel.permissionOverwrites.set(overwrites);
 				await interaction.editReply({ content: `✅ Salon ${channelType === ChannelType.GuildVoice ? 'vocal' : 'textuel'} créé.` }).catch(() => { });
 				await this.refresh(zoneRow.id, ['channels']);
