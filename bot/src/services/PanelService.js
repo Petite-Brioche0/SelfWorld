@@ -139,25 +139,28 @@ class PanelService {
 	        if (selectedMember) {
 	                embed.addFields({ name: 'Membre sélectionné', value: `<@${selectedMember.id}>`, inline: false });
 	        }
-	
-	        const select = new StringSelectMenuBuilder()
-	                .setCustomId(`panel:member:view:${zoneRow.id}`)
-	                .setPlaceholder('Choisis un membre à gérer')
-	                .setMinValues(1)
-	                .setMaxValues(1);
-	
-	        const options = members.slice(0, 25).map((member) => ({
-	                label: member.displayName?.slice(0, 100) || member.user?.username?.slice(0, 100) || member.id,
-	                value: member.id,
-	                description: member.user?.tag?.slice(0, 100) || undefined,
-	                default: selectedMember ? member.id === selectedMember.id : false
-	        }));
-	
-	        if (options.length) {
-	                select.addOptions(options);
-	        } else {
-	                select.setPlaceholder('Aucun membre disponible').setDisabled(true);
-	        }
+
+                const select = new StringSelectMenuBuilder()
+                        .setCustomId(`panel:member:view:${zoneRow.id}`)
+                        .setPlaceholder('Choisis un membre à gérer')
+                        .setMinValues(1)
+                        .setMaxValues(1);
+
+                const options = members.slice(0, 25).map((member) => ({
+                        label: member.displayName?.slice(0, 100) || member.user?.username?.slice(0, 100) || member.id,
+                        value: member.id,
+                        description: member.user?.tag?.slice(0, 100) || undefined,
+                        default: selectedMember ? member.id === selectedMember.id : false
+                }));
+
+                if (options.length) {
+                        select.addOptions(options);
+                } else {
+                        select
+                                .setPlaceholder('Aucun membre disponible')
+                                .setDisabled(true)
+                                .addOptions({ label: 'Aucun membre', value: 'noop' });
+                }
 	
 	        const rows = [new ActionRowBuilder().addComponents(select)];
 	
@@ -256,7 +259,10 @@ const editSelect = new StringSelectMenuBuilder()
 if (editOptions.length) {
 editSelect.addOptions(editOptions);
 } else {
-editSelect.setPlaceholder('Aucun rôle à modifier').setDisabled(true);
+editSelect
+.setPlaceholder('Aucun rôle à modifier')
+.setDisabled(true)
+.addOptions({ label: 'Aucun rôle', value: 'noop' });
 }
 
 const deleteSelect = new StringSelectMenuBuilder()
@@ -267,7 +273,10 @@ const deleteSelect = new StringSelectMenuBuilder()
 if (deleteOptions.length) {
 deleteSelect.addOptions(deleteOptions);
 } else {
-deleteSelect.setPlaceholder('Aucun rôle personnalisé').setDisabled(true);
+deleteSelect
+.setPlaceholder('Aucun rôle personnalisé')
+.setDisabled(true)
+.addOptions({ label: 'Aucun rôle', value: 'noop' });
 }
 
 const assignSelect = new StringSelectMenuBuilder()
@@ -278,7 +287,10 @@ const assignSelect = new StringSelectMenuBuilder()
 if (assignOptions.length) {
 assignSelect.addOptions(assignOptions);
 } else {
-assignSelect.setPlaceholder('Aucun rôle disponible').setDisabled(true);
+assignSelect
+.setPlaceholder('Aucun rôle disponible')
+.setDisabled(true)
+.addOptions({ label: 'Aucun rôle', value: 'noop' });
 }
 
 return {
@@ -318,28 +330,34 @@ new ActionRowBuilder().addComponents(assignSelect)
 	value: channel.id,
 	description: channel.type === 2 ? 'Salon vocal de la zone' : 'Salon textuel de la zone'
 	}));
-	
-	const editSelect = new StringSelectMenuBuilder()
-	.setCustomId(`panel:ch:edit:${zoneRow.id}`)
-	.setPlaceholder('Modifier un salon de la zone')
-	.setMinValues(1)
-	.setMaxValues(1);
-	if (options.length) {
-	editSelect.addOptions(options);
-	} else {
-	editSelect.setPlaceholder('Aucun salon disponible').setDisabled(true);
-	}
-	
-	const deleteSelect = new StringSelectMenuBuilder()
-	.setCustomId(`panel:ch:del:${zoneRow.id}`)
-	.setPlaceholder('Supprimer un salon de la zone')
-	.setMinValues(1)
-	.setMaxValues(1);
-	if (options.length) {
-	deleteSelect.addOptions(options);
-	} else {
-	deleteSelect.setPlaceholder('Aucun salon disponible').setDisabled(true);
-	}
+
+        const editSelect = new StringSelectMenuBuilder()
+        .setCustomId(`panel:ch:edit:${zoneRow.id}`)
+        .setPlaceholder('Modifier un salon de la zone')
+        .setMinValues(1)
+        .setMaxValues(1);
+        if (options.length) {
+        editSelect.addOptions(options);
+        } else {
+        editSelect
+        .setPlaceholder('Aucun salon disponible')
+        .setDisabled(true)
+        .addOptions({ label: 'Aucun salon', value: 'noop' });
+        }
+
+        const deleteSelect = new StringSelectMenuBuilder()
+        .setCustomId(`panel:ch:del:${zoneRow.id}`)
+        .setPlaceholder('Supprimer un salon de la zone')
+        .setMinValues(1)
+        .setMaxValues(1);
+        if (options.length) {
+        deleteSelect.addOptions(options);
+        } else {
+        deleteSelect
+        .setPlaceholder('Aucun salon disponible')
+        .setDisabled(true)
+        .addOptions({ label: 'Aucun salon', value: 'noop' });
+        }
 	
 	return {
 	embed,
