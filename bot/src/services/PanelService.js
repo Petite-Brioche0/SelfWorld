@@ -1470,7 +1470,6 @@ class PanelService {
 				const botRole = botMember?.roles?.highest || null;
 				const allowed = new Set();
 				if (zoneRow.role_owner_id) allowed.add(zoneRow.role_owner_id);
-				if (zoneRow.role_member_id) allowed.add(zoneRow.role_member_id);
 				const overwrites = this.#buildChannelPermissionOverwrites(guild, zoneRow, channel, allowed, botRole);
 				await channel.permissionOverwrites.set(overwrites);
 				await interaction.editReply({ content: `✅ Salon ${channelType === ChannelType.GuildVoice ? 'vocal' : 'textuel'} créé.` }).catch(() => { });
