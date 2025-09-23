@@ -733,6 +733,28 @@ class PanelService {
                 }
         }
 
+        async #syncZoneMembership(zoneRow, memberId, { hasOwnerRole = false, hasMemberRole = false } = {}) {
+                if (!zoneRow?.id || !memberId) return;
+
+                if (hasOwnerRole) {
+                        await this.db.query(
+                                'INSERT INTO zone_members (zone_id, user_id, role) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE role = VALUES(role)',
+                                [zoneRow.id, memberId, 'owner']
+                        );
+                        return;
+                }
+
+                if (hasMemberRole) {
+                        await this.db.query(
+                                'INSERT INTO zone_members (zone_id, user_id, role) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE role = VALUES(role)',
+                                [zoneRow.id, memberId, 'member']
+                        );
+                        return;
+                }
+
+                await this.db.query('DELETE FROM zone_members WHERE zone_id = ? AND user_id = ?', [zoneRow.id, memberId]);
+        }
+
         async #removeAllMemberRoleRecords(zoneRow, memberId) {
                 if (!zoneRow?.id || !memberId) return;
                 await this.db.query('DELETE FROM zone_member_roles WHERE zone_id = ? AND user_id = ?', [zoneRow.id, memberId]);
@@ -882,24 +904,34 @@ class PanelService {
 			return true;
 		}
 
-		if (parts[1] === 'member' && parts[2] === 'roles') {
-			const memberId = parts[4];
-			if (!memberId) {
-				await interaction.reply({ content: 'Membre invalide.', ephemeral: true }).catch(() => { });
-				return true;
-			}
-			const values = interaction.values || [];
-			await interaction.deferUpdate().catch(() => { });
-			try {
-				const { guild, members } = await this.#collectZoneMembers(zoneRow);
-				const member = members.find((m) => m.id === memberId) || (await guild.members.fetch(memberId).catch(() => null));
-				if (!member) throw new Error('member not found');
+                if (parts[1] === 'member' && parts[2] === 'roles') {
+                        const memberId = parts[4];
+                        if (!memberId) {
+                                await interaction.reply({ content: 'Membre invalide.', ephemeral: true }).catch(() => { });
+                                return true;
+                        }
+                        const values = interaction.values || [];
+                        await interaction.deferUpdate().catch(() => { });
+                        try {
+                                const { guild, members } = await this.#collectZoneMembers(zoneRow);
+                                const member = members.find((m) => m.id === memberId) || (await guild.members.fetch(memberId).catch(() => null));
+                                if (!member) throw new Error('member not found');
 
-                                const { customRoles } = await this.#collectZoneRoles(zoneRow);
+                                const { coreRoles, customRoles } = await this.#collectZoneRoles(zoneRow);
                                 const assignableIds = new Set();
-                                for (const entry of customRoles) assignableIds.add(entry.role.id);
+                                const customAssignableIds = new Set();
+                                if (coreRoles.owner) assignableIds.add(coreRoles.owner.id);
+                                if (coreRoles.member) assignableIds.add(coreRoles.member.id);
+                                for (const entry of customRoles) {
+                                        assignableIds.add(entry.role.id);
+                                        customAssignableIds.add(entry.role.id);
+                                }
 
                                 const desired = new Set(values.filter((v) => assignableIds.has(v)));
+                                if (coreRoles.owner && desired.has(coreRoles.owner.id) && coreRoles.member) {
+                                        desired.add(coreRoles.member.id);
+                                }
+
                                 const current = new Set(
                                         (member.roles?.cache ? [...member.roles.cache.keys()] : []).filter((id) => assignableIds.has(id))
                                 );
@@ -914,15 +946,27 @@ class PanelService {
                                         await member.roles.remove(toRemove).catch(() => { });
                                 }
 
-                                await this.#replaceMemberRoleRecords(zoneRow, memberId, desired);
+                                const refreshed = await guild.members.fetch(memberId).catch(() => null);
+                                const snapshot = refreshed || member;
+                                const updatedRoleIds = new Set(
+                                        snapshot.roles?.cache ? [...snapshot.roles.cache.keys()].filter((id) => assignableIds.has(id)) : []
+                                );
+                                const hasOwnerRole = coreRoles.owner ? updatedRoleIds.has(coreRoles.owner.id) : false;
+                                const hasMemberRole = coreRoles.member ? updatedRoleIds.has(coreRoles.member.id) : false;
+                                const desiredCustomRoles = new Set(
+                                        [...updatedRoleIds].filter((id) => customAssignableIds.has(id))
+                                );
+
+                                await this.#replaceMemberRoleRecords(zoneRow, memberId, desiredCustomRoles);
+                                await this.#syncZoneMembership(zoneRow, memberId, { hasOwnerRole, hasMemberRole });
 
                         const { embed, components } = await this.renderMembers(zoneRow, memberId);
                                 await interaction.message.edit({ embeds: [embed], components }).catch(() => { });
-			} catch (err) {
-				await interaction.followUp?.({ content: 'Impossible de mettre à jour les rôles.', ephemeral: true }).catch(() => { });
-			}
-			return true;
-		}
+                        } catch (err) {
+                                await interaction.followUp?.({ content: 'Impossible de mettre à jour les rôles.', ephemeral: true }).catch(() => { });
+                        }
+                        return true;
+                }
 
 		if (parts[1] === 'role' && parts[2] === 'select') {
 			const selectedRoleId = interaction.values?.[0] || null;
@@ -1074,8 +1118,8 @@ class PanelService {
 			}
 
 			if (parts[2] === 'view') {
-				const targetId = parts[4] || null;
-				const { embed, components } = await this.renderMembers(zoneRow, targetId);
+                                const targetId = parts[4] || null;
+                                const { embed, components } = await this.renderMembers(zoneRow, targetId);
 				await interaction.update({ embeds: [embed], components }).catch(() => { });
 				return true;
 			}
