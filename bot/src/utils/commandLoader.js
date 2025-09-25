@@ -33,6 +33,7 @@ function buildLegacySlashCommand(commandName, bucket) {
                         if (typeof mod.build === 'function') {
                                 mod.build(sub);
                         }
+                        return sub;
                 });
                 handlers.set(`:${mod.subCommand}`, mod);
         }
@@ -64,9 +65,11 @@ function buildLegacySlashCommand(commandName, bucket) {
                                         if (typeof mod.build === 'function') {
                                                 mod.build(sub);
                                         }
+                                        return sub;
                                 });
                                 handlers.set(`${groupName}:${mod.subCommand}`, mod);
                         }
+                        return group;
                 });
         }
 
