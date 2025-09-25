@@ -22,8 +22,20 @@ module.exports = {
                         await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral });
                         return;
                 }
-		await services.zone.ensureZoneOwner(zone.id, interaction.user.id);
-		await services.policy.setPolicy(zone.id, policy);
-                await interaction.reply({ content: `Politique mise à jour sur \`${policy}\`.`, flags: MessageFlags.Ephemeral });
+                const isOwner = await services.zone.ensureZoneOwner(zone.id, interaction.user.id, zone);
+                if (!isOwner) {
+                        await interaction.reply({ content: 'Seul le propriétaire de cette zone peut faire cette action.', flags: MessageFlags.Ephemeral });
+                        return;
+                }
+
+                try {
+                        await services.policy.setPolicy(zone.id, policy);
+                        if (services.panel?.refresh) {
+                                await services.panel.refresh(zone.id, ['policy']).catch(() => {});
+                        }
+                        await interaction.reply({ content: `Politique mise à jour sur \`${policy}\`.`, flags: MessageFlags.Ephemeral });
+                } catch (err) {
+                        await interaction.reply({ content: `Impossible de mettre à jour la politique : ${err.message || err}`, flags: MessageFlags.Ephemeral });
+                }
         }
 };

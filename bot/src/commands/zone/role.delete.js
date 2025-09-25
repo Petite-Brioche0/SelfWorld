@@ -18,8 +18,17 @@ module.exports = {
                         await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral });
                         return;
                 }
-		await services.zone.ensureZoneOwner(zone.id, interaction.user.id);
-		await services.zone.deleteRole(zone.id, role.id);
-                await interaction.reply({ content: `Rôle ${role.name} supprimé.`, flags: MessageFlags.Ephemeral });
+                const isOwner = await services.zone.ensureZoneOwner(zone.id, interaction.user.id, zone);
+                if (!isOwner) {
+                        await interaction.reply({ content: 'Seul le propriétaire de cette zone peut faire cette action.', flags: MessageFlags.Ephemeral });
+                        return;
+                }
+
+                try {
+                        await services.zone.deleteRole(zone.id, role.id);
+                        await interaction.reply({ content: `Rôle ${role.name} supprimé.`, flags: MessageFlags.Ephemeral });
+                } catch (err) {
+                        await interaction.reply({ content: `Impossible de supprimer ce rôle : ${err.message || err}`, flags: MessageFlags.Ephemeral });
+                }
         }
 };

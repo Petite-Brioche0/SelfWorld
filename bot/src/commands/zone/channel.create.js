@@ -23,8 +23,17 @@ module.exports = {
                         await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral });
                         return;
                 }
-		await services.zone.ensureZoneOwner(zone.id, interaction.user.id);
-		const channel = await services.zone.createChannel(zone.id, type, name);
-                await interaction.reply({ content: `Canal ${channel} créé.`, flags: MessageFlags.Ephemeral });
+                const isOwner = await services.zone.ensureZoneOwner(zone.id, interaction.user.id, zone);
+                if (!isOwner) {
+                        await interaction.reply({ content: 'Seul le propriétaire de cette zone peut faire cette action.', flags: MessageFlags.Ephemeral });
+                        return;
+                }
+
+                try {
+                        const channel = await services.zone.createChannel(zone.id, type, name);
+                        await interaction.reply({ content: `Canal ${channel} créé.`, flags: MessageFlags.Ephemeral });
+                } catch (err) {
+                        await interaction.reply({ content: `Impossible de créer le canal : ${err.message || err}`, flags: MessageFlags.Ephemeral });
+                }
         }
 };
