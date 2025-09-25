@@ -1,13 +1,14 @@
 
 const crypto = require('crypto');
-const { WebhookClient, EmbedBuilder } = require('discord.js');
+const { WebhookClient, EmbedBuilder, MessageFlags } = require('discord.js');
 const { generateAnonName } = require('../utils/anonNames');
 
 class AnonService {
-	constructor(client, db) {
-		this.client = client;
-		this.db = db;
-	}
+        constructor(client, db, logger = null) {
+                this.client = client;
+                this.db = db;
+                this.logger = logger;
+        }
 
 	#todaySalt() {
 		const d = new Date();
@@ -59,16 +60,36 @@ class AnonService {
                 return rows;
         }
 
-	async #ensureWebhook(row) {
-		if (row.webhook_id && row.webhook_token) return row;
-		const channel = await this.client.channels.fetch(row.source_channel_id).catch(()=>null);
-		if (!channel) return row;
-		const hook = await channel.createWebhook({ name: 'Anon Relay' });
-		await this.db.query('UPDATE anon_channels SET webhook_id=?, webhook_token=? WHERE zone_id=?', [hook.id, hook.token, row.zone_id]);
-		row.webhook_id = hook.id;
-		row.webhook_token = hook.token;
-		return row;
-	}
+        async #ensureWebhook(row) {
+                if (!row) return row;
+                if (row.webhook_id === '0' || row.webhook_token === '0') {
+                        row._webhookDisabled = true;
+                        return row;
+                }
+                if (row.webhook_id && row.webhook_token) return row;
+
+                const channel = await this.client.channels.fetch(row.source_channel_id).catch(() => null);
+                if (!channel) return row;
+
+                try {
+                        const hook = await channel.createWebhook({ name: 'Anon Relay' });
+                        await this.db.query('UPDATE anon_channels SET webhook_id=?, webhook_token=? WHERE zone_id=?', [hook.id, hook.token, row.zone_id]);
+                        row.webhook_id = hook.id;
+                        row.webhook_token = hook.token;
+                } catch (err) {
+                        if (err?.code === 50013 || err?.status === 403) {
+                                this.logger?.warn?.({ err, channelId: row.source_channel_id }, 'Missing Manage Webhooks permission');
+                                await this.db.query('UPDATE anon_channels SET webhook_id=?, webhook_token=? WHERE zone_id=?', ['0', '0', row.zone_id]).catch(() => {});
+                                row.webhook_id = '0';
+                                row.webhook_token = '0';
+                                row._webhookDisabled = true;
+                        } else {
+                                this.logger?.error?.({ err, channelId: row.source_channel_id }, 'Failed to ensure anon webhook');
+                        }
+                }
+
+                return row;
+        }
 
 	#sanitize(content) {
 		if (!content) return '';
@@ -77,8 +98,8 @@ class AnonService {
 			.replace(/@here/gi, '@\u200bhere');
 	}
 
-	async handleMessage(message) {
-	if (!message || !message.guild || message.author.bot) return;
+        async handleMessage(message) {
+        if (!message || !message.guild || message.author.bot) return;
 	
 	const zoneId = await this.#findZoneByAnonChannel(message.channelId);
 	if (!zoneId) return; // not an anon channel
@@ -125,22 +146,47 @@ class AnonService {
 	// Fan-out
 	const targets = await this.#allTargets();
 	
-	for (const row of targets) {
-	if (!row || !row.source_channel_id) continue;
-	const hooked = await this.#ensureWebhook(row);
-	if (!hooked.webhook_id || !hooked.webhook_token) continue;
-	
-	const hook = new WebhookClient({ id: hooked.webhook_id, token: hooked.webhook_token });
+        for (const row of targets) {
+        if (!row || !row.source_channel_id) continue;
+        const hooked = await this.#ensureWebhook(row);
+        if (!hooked || hooked._webhookDisabled) continue;
+        if (!hooked.webhook_id || !hooked.webhook_token) continue;
+
+        const hook = new WebhookClient({ id: hooked.webhook_id, token: hooked.webhook_token });
         const name = this.#buildAnonName(message.author.id, row.zone_id);
-	
-	await hook.send({
-	username: name,
-	content: sanitized.length ? sanitized : undefined,
-	files,
-	allowedMentions: { parse: [] }
-	}).catch(()=>{});
-	}
-		}
+
+        await hook.send({
+        username: name,
+        content: sanitized.length ? sanitized : undefined,
+        files,
+        allowedMentions: { parse: [] }
+        }).catch((err) => {
+        this.logger?.warn?.({ err, zoneId: row.zone_id }, 'Failed to relay anonymous message');
+        });
+        }
+                }
+
+        async presentOptions(interaction, { message = null } = {}) {
+                const baseText = [
+                        '📣 Les messages envoyés dans ce salon sont relayés anonymement aux zones participantes.',
+                        '🚨 Les abus sont consignés et peuvent entraîner des sanctions.'
+                ];
+
+                if (message?.url) {
+                        baseText.push(`Message ciblé : ${message.url}`);
+                }
+
+                const payload = {
+                        content: baseText.join('\n'),
+                        flags: MessageFlags.Ephemeral
+                };
+
+                if (interaction.deferred || interaction.replied) {
+                        return interaction.followUp(payload);
+                }
+
+                return interaction.reply(payload);
+        }
 }
 
 module.exports = { AnonService };

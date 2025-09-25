@@ -20,8 +20,17 @@ module.exports = {
                         await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral });
                         return;
                 }
-		await services.zone.ensureZoneOwner(zone.id, interaction.user.id);
-		const { code, expiresAt } = await services.zone.generateJoinCode(zone.id, user.id, ttl);
-                await interaction.reply({ content: `Code pour ${user}: \`${code}\` (expire ${expiresAt.toLocaleString()}).`, flags: MessageFlags.Ephemeral });
+                const isOwner = await services.zone.ensureZoneOwner(zone.id, interaction.user.id, zone);
+                if (!isOwner) {
+                        await interaction.reply({ content: 'Seul le propriétaire de cette zone peut faire cette action.', flags: MessageFlags.Ephemeral });
+                        return;
+                }
+
+                try {
+                        const { code, expiresAt } = await services.zone.generateJoinCode(zone.id, user.id, ttl);
+                        await interaction.reply({ content: `Code pour ${user}: \`${code}\` (expire ${expiresAt.toLocaleString()}).`, flags: MessageFlags.Ephemeral });
+                } catch (err) {
+                        await interaction.reply({ content: `Impossible de générer un code : ${err.message || err}`, flags: MessageFlags.Ephemeral });
+                }
         }
 };

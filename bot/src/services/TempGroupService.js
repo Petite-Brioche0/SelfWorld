@@ -1,5 +1,5 @@
 
-const { ChannelType, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
+const { ChannelType, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, PermissionFlagsBits } = require('discord.js');
 
 class TempGroupService {
 	constructor(client, db) {
@@ -7,10 +7,49 @@ class TempGroupService {
 		this.db = db;
 	}
 
-	async createTempGroup(guild, name, userIds) {
-		const category = await guild.channels.create({ name, type: ChannelType.GuildCategory });
-		const text = await guild.channels.create({ name: 'discussion', type: ChannelType.GuildText, parent: category.id });
-		const voice = await guild.channels.create({ name: 'vocal', type: ChannelType.GuildVoice, parent: category.id });
+        async createTempGroup(guild, name, userIds) {
+                const sanitizedName = name?.slice(0, 90) || 'groupe-temp';
+                const participantIds = Array.from(new Set(userIds.map((id) => String(id))));
+
+                const botId = this.client.user.id;
+                const everyoneId = guild.roles.everyone.id;
+
+                const category = await guild.channels.create({
+                        name: sanitizedName,
+                        type: ChannelType.GuildCategory,
+                        permissionOverwrites: [
+                                { id: everyoneId, deny: [PermissionFlagsBits.ViewChannel] },
+                                { id: botId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageMessages] },
+                                ...participantIds.map((id) => ({ id, allow: [PermissionFlagsBits.ViewChannel] }))
+                        ]
+                });
+
+                const text = await guild.channels.create({
+                        name: 'discussion',
+                        type: ChannelType.GuildText,
+                        parent: category.id
+                });
+
+                const voice = await guild.channels.create({
+                        name: 'vocal',
+                        type: ChannelType.GuildVoice,
+                        parent: category.id
+                });
+
+                const textOverwrites = [
+                        { id: everyoneId, deny: [PermissionFlagsBits.ViewChannel] },
+                        { id: botId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageMessages] },
+                        ...participantIds.map((id) => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] }))
+                ];
+
+                const voiceOverwrites = [
+                        { id: everyoneId, deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] },
+                        { id: botId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak, PermissionFlagsBits.MoveMembers, PermissionFlagsBits.ManageChannels] },
+                        ...participantIds.map((id) => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak] }))
+                ];
+
+                await text.permissionOverwrites.set(textOverwrites).catch(() => {});
+                await voice.permissionOverwrites.set(voiceOverwrites).catch(() => {});
 
 		const [res] = await this.db.query('INSERT INTO temp_groups (name, category_id, archived, created_at, expires_at) VALUES (?, ?, 0, NOW(), DATE_ADD(NOW(), INTERVAL 72 HOUR))',
 			[name, category.id]);
@@ -20,10 +59,10 @@ class TempGroupService {
 			await this.db.query('INSERT INTO temp_group_members (temp_group_id, user_id) VALUES (?, ?)', [id, uid]);
 		}
 
-		const row = new ActionRowBuilder().addComponents(
-			new ButtonBuilder().setCustomId(`temp:delete:${id}`).setStyle(ButtonStyle.Danger).setLabel('Supprimer'),
-			new ButtonBuilder().setCustomId(`temp:extend:${id}`).setStyle(ButtonStyle.Secondary).setLabel('Prolonger')
-		);
+                const row = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`temp:delete:${id}`).setStyle(ButtonStyle.Danger).setLabel('Supprimer'),
+                        new ButtonBuilder().setCustomId(`temp:extend:${id}`).setStyle(ButtonStyle.Secondary).setLabel('Prolonger')
+                );
 
 		const e = new EmbedBuilder().setTitle('Groupe temporaire').setDescription('Aucune activité → archivage auto après 72h.').setTimestamp();
 		await text.send({ embeds: [e], components: [row] }).catch(()=>{});
@@ -39,8 +78,15 @@ class TempGroupService {
 		const g = rows?.[0];
                 if (!g) return interaction.reply({ content: 'Groupe introuvable.', flags: MessageFlags.Ephemeral });
 
-                const text = await this.client.channels.fetch(g.category_id).catch(()=>null);
-                if (!text) return interaction.reply({ content: 'Catégorie introuvable.', flags: MessageFlags.Ephemeral });
+                const exists = await this.client.channels.fetch(g.category_id).catch(()=>null);
+                if (!exists) return interaction.reply({ content: 'Catégorie introuvable.', flags: MessageFlags.Ephemeral });
+
+                const [memberRows] = await this.db.query('SELECT user_id FROM temp_group_members WHERE temp_group_id=?', [groupId]);
+                const members = new Set(Array.isArray(memberRows) ? memberRows.map((row) => String(row.user_id)) : []);
+                const hasPermission = members.has(String(interaction.user.id)) || interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels);
+                if (!hasPermission) {
+                        return interaction.reply({ content: 'Seuls les membres du groupe (ou un modérateur) peuvent utiliser ces boutons.', flags: MessageFlags.Ephemeral });
+                }
 
                 if (action === 'delete') {
                         await this._deleteGroup(g);
@@ -53,8 +99,8 @@ class TempGroupService {
 	}
 
 	async _deleteGroup(g) {
-		const cat = await this.client.channels.fetch(g.category_id).catch(()=>null);
-		if (cat) await cat.delete().catch(()=>{});
+                const cat = await this.client.channels.fetch(g.category_id).catch(()=>null);
+                if (cat) await cat.delete().catch(()=>{});
 		await this.db.query('DELETE FROM temp_group_members WHERE temp_group_id=?', [g.id]);
 		await this.db.query('DELETE FROM temp_groups WHERE id=?', [g.id]);
 	}

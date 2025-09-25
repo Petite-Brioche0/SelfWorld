@@ -20,8 +20,17 @@ module.exports = {
                         await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral });
                         return;
                 }
-		await services.zone.ensureZoneOwner(zone.id, interaction.user.id);
-		await services.zone.renameChannel(channel.id, name);
-                await interaction.reply({ content: `Canal ${channel} renommé.`, flags: MessageFlags.Ephemeral });
+                const isOwner = await services.zone.ensureZoneOwner(zone.id, interaction.user.id, zone);
+                if (!isOwner) {
+                        await interaction.reply({ content: 'Seul le propriétaire de cette zone peut faire cette action.', flags: MessageFlags.Ephemeral });
+                        return;
+                }
+
+                try {
+                        await services.zone.renameChannel(channel.id, name);
+                        await interaction.reply({ content: `Canal ${channel} renommé en ${name}.`, flags: MessageFlags.Ephemeral });
+                } catch (err) {
+                        await interaction.reply({ content: `Impossible de renommer le canal : ${err.message || err}`, flags: MessageFlags.Ephemeral });
+                }
         }
 };
