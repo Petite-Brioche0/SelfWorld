@@ -62,7 +62,7 @@ const client = new Client({
                        zone: zoneService,
                        policy: new PolicyService(client, pool),
                        activity: new ActivityService(client, pool),
-                       anon: new AnonService(client, pool),
+                       anon: new AnonService(client, pool, logger),
                        event: new EventService(client, pool),
                        tempGroup: new TempGroupService(client, pool)
                };

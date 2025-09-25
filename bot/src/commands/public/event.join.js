@@ -18,8 +18,17 @@ module.exports = {
                         await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral });
                         return;
                 }
-		await services.zone.ensureZoneMember(zone.id, interaction.user.id);
-		await services.event.joinEvent(name, zone.id, interaction.user.id);
-                await interaction.reply({ content: 'Votre participation a été enregistrée.', flags: MessageFlags.Ephemeral });
+                const isMember = await services.zone.ensureZoneMember(zone.id, interaction.user.id, zone);
+                if (!isMember) {
+                        await interaction.reply({ content: 'Tu dois être membre de cette zone pour participer.', flags: MessageFlags.Ephemeral });
+                        return;
+                }
+
+                try {
+                        await services.event.joinEvent(name, zone.id, interaction.user.id);
+                        await interaction.reply({ content: 'Votre participation a été enregistrée.', flags: MessageFlags.Ephemeral });
+                } catch (err) {
+                        await interaction.reply({ content: `Impossible de vous inscrire : ${err.message || err}`, flags: MessageFlags.Ephemeral });
+                }
         }
 };

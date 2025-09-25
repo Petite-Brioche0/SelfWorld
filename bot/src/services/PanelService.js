@@ -152,15 +152,15 @@ class PanelService {
                         .setMinValues(1)
                         .setMaxValues(1);
 
-		const options = members.slice(0, 25).map((member) => ({
+                const memberOptions = members.slice(0, 25).map((member) => ({
 			label: member.displayName?.slice(0, 100) || member.user?.username?.slice(0, 100) || member.id,
 			value: member.id,
 			description: member.user?.tag?.slice(0, 100) || undefined,
 			default: selectedMember ? member.id === selectedMember.id : false
 		}));
 
-		if (options.length) {
-			select.addOptions(options);
+                if (memberOptions.length) {
+                        select.addOptions(memberOptions);
 		} else {
 			select
 				.setPlaceholder('Aucun membre disponible')
@@ -196,7 +196,7 @@ class PanelService {
                         embed.addFields({ name: 'Rôles de la zone (actuels)', value: list, inline: false });
 
                         // Select zone roles excluding Owner/Member (managed automatically)
-                        const options = assignableZoneRoles.slice(0, 25).map((zr) => ({
+                        const roleOptions = assignableZoneRoles.slice(0, 25).map((zr) => ({
                                 label: zr.role.name.slice(0, 100),
                                 value: zr.role.id,
                                 description: zr.description.slice(0, 100),
@@ -207,10 +207,10 @@ class PanelService {
                                 .setCustomId(`panel:member:assignRole:${zoneRow.id}:${selectedMember.id}`)
                                 .setPlaceholder('Sélectionne les rôles de la zone')
                                 .setMinValues(0)
-                                .setMaxValues(options.length ? Math.min(25, options.length) : 1);
+                                .setMaxValues(roleOptions.length ? Math.min(25, roleOptions.length) : 1);
 
-                        if (options.length) {
-                                assignSelect.addOptions(options);
+                        if (roleOptions.length) {
+                                assignSelect.addOptions(roleOptions);
                         } else {
                                 assignSelect
                                         .setPlaceholder('Aucun rôle disponible')
