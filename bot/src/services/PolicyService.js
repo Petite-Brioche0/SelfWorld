@@ -1,68 +1,1304 @@
+const crypto = require('node:crypto');
+const {
+        ActionRowBuilder,
+        ButtonBuilder,
+        ButtonStyle,
+        ChannelType,
+        EmbedBuilder,
+        MessageFlags,
+        ModalBuilder,
+        PermissionFlagsBits,
+        TextInputBuilder,
+        TextInputStyle
+} = require('discord.js');
+const { applyZoneOverwrites } = require('../utils/permissions');
 
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags } = require('discord.js');
+const POLICY_VALUES = new Set(['open', 'ask', 'closed']);
+const ASK_MODES = new Set(['request', 'invite', 'both']);
+const APPROVER_MODES = new Set(['owner', 'members']);
 
 class PolicyService {
-	constructor(client, db) {
-		this.client = client;
-		this.db = db;
-	}
+        #schemaReady = false;
 
-	async setPolicy(zoneId, policy) {
-		await this.db.query('UPDATE zones SET policy=? WHERE id=?', [policy, zoneId]);
-	}
+        constructor(client, db, logger = null, panelService = null) {
+                this.client = client;
+                this.db = db;
+                this.logger = logger;
+                this.panelService = panelService;
+                this.services = null;
+        }
 
-	async createJoinRequestCard(zoneRow, applicantUserId, mode) {
-		const recep = await this.client.channels.fetch(zoneRow.text_reception_id).catch(()=>null);
-		if (!recep) return null;
+        setPanelService(panelService) {
+                this.panelService = panelService;
+        }
 
-		const e = new EmbedBuilder()
-			.setTitle('Demande d’entrée')
-			.setDescription(`Utilisateur: <@${applicantUserId}>`)
-			.addFields({ name: 'Mode', value: mode })
-			.setTimestamp();
+        setServices(services) {
+                this.services = services;
+        }
 
-		const row = new ActionRowBuilder().addComponents(
-			new ButtonBuilder().setCustomId(`zone:approve:${zoneRow.id}:${applicantUserId}`).setStyle(ButtonStyle.Success).setLabel('Approuver'),
-			new ButtonBuilder().setCustomId(`zone:reject:${zoneRow.id}:${applicantUserId}`).setStyle(ButtonStyle.Danger).setLabel('Refuser'),
-		);
-
-		const msg = await recep.send({ embeds: [e], components: [row] });
-		await this.db.query('INSERT INTO join_requests (zone_id, applicant_user_id, status, message_id, created_at) VALUES (?, ?, ?, ?, NOW())',
-			[zoneRow.id, applicantUserId, 'pending', msg.id]);
-		return msg;
-	}
-
-	async handleApprovalButton(interaction) {
-		const parts = interaction.customId.split(':');
-		const approve = parts[1] === 'approve';
-		const zoneId = Number(parts[2]);
-		const applicant = parts[3];
-
-		const [rows] = await this.db.query('SELECT * FROM zones WHERE id=?', [zoneId]);
-		const zone = rows?.[0];
-                if (!zone) return interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral });
-
-                if (interaction.user.id !== String(zone.owner_user_id)) {
-                        return interaction.reply({ content: 'Seul le propriétaire de cette zone peut décider ici.', flags: MessageFlags.Ephemeral });
+        async handleApprovalButton(interaction) {
+                const parts = interaction.customId.split(':');
+                if (parts.length < 4) {
+                        await interaction.reply({
+                                content: 'Action invalide.',
+                                flags: MessageFlags.Ephemeral
+                        }).catch(() => {});
+                        return true;
                 }
 
-		await this.db.query('UPDATE join_requests SET status=? WHERE zone_id=? AND applicant_user_id=?',
-			[approve ? 'approved' : 'rejected', zoneId, applicant]);
+                const action = parts[1];
+                const zoneId = Number(parts[2]);
+                const targetUserId = parts[3];
 
-		if (approve) {
-			try {
-				const guild = interaction.guild;
-				const member = await guild.members.fetch(applicant);
-				await member.roles.add(zone.role_member_id);
-			} catch {}
-		}
-
-		try {
-			await interaction.update({ content: approve ? '✅ Demande approuvée' : '❌ Demande refusée', embeds: [], components: [] });
-		} catch {
-                        await interaction.reply({ content: approve ? '✅ Demande approuvée' : '❌ Demande refusée', flags: MessageFlags.Ephemeral });
+                if (!zoneId || !targetUserId || !['approve', 'reject'].includes(action)) {
+                        await interaction.reply({
+                                content: 'Action invalide.',
+                                flags: MessageFlags.Ephemeral
+                        }).catch(() => {});
+                        return true;
                 }
-	}
+
+                await this.#ensureSchema();
+                const zone = await this.#getZone(zoneId);
+                if (!zone) {
+                        await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral }).catch(() => {})
+;
+                        return true;
+                }
+
+                const guild = interaction.guild ?? (await this.client.guilds.fetch(zone.guild_id).catch(() => null));
+                const actorMember =
+                        interaction.member ?? (guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null);
+
+                if (!(await this.#canModerateRequests(zone, interaction.user.id, actorMember))) {
+                        await interaction.reply({
+                                content: 'Tu ne peux pas traiter cette demande.',
+                                flags: MessageFlags.Ephemeral
+                        }).catch(() => {});
+                        return true;
+                }
+
+                const [rows] = await this.db.query(
+                        "SELECT * FROM zone_join_requests WHERE zone_id = ? AND user_id = ? AND status = 'pending' ORDER BY id DES"
+                                + 'C LIMIT 1',
+                        [zoneId, targetUserId]
+                );
+                const request = rows?.[0];
+                if (!request) {
+                        await interaction.reply({
+                                content: 'Cette demande a déjà été traitée.',
+                                flags: MessageFlags.Ephemeral
+                        }).catch(() => {});
+                        return true;
+                }
+
+                try {
+                        await interaction.deferUpdate();
+                } catch {}
+
+                const approved = action === 'approve';
+                let statusUpdate = 'declined';
+                if (approved) statusUpdate = 'accepted';
+
+                try {
+                        const [result] = await this.db.query(
+                                'UPDATE zone_join_requests SET status = ?, decided_by = ?, decided_at = NOW() WHERE id = ? AND st'
+                                        + "atus = 'pending'",
+                                [statusUpdate, interaction.user.id, request.id]
+                        );
+
+                        if (!result?.affectedRows) {
+                                await interaction.followUp({
+                                        content: 'Cette demande a déjà été traitée.',
+                                        flags: MessageFlags.Ephemeral
+                                }).catch(() => {});
+                                return true;
+                        }
+
+                        if (approved) {
+                                await this.#grantZoneMembership(zone, targetUserId);
+                                await this.#dmUser(targetUserId, {
+                                        content: `🎉 Ta demande pour **${zone.name}** a été acceptée !`
+                                });
+                        } else {
+                                await this.#dmUser(targetUserId, {
+                                        content: `Ta demande pour **${zone.name}** a été refusée.`
+                                });
+                        }
+
+                        await this.#refreshPanel(zone.id);
+                        await this.#disableInteractionRow(interaction.message);
+
+                        await interaction.followUp({
+                                content: approved
+                                        ? '✅ Demande acceptée. Le membre va être notifié.'
+                                        : 'Demande refusée.',
+                                flags: MessageFlags.Ephemeral
+                        }).catch(() => {});
+
+                        this.logger?.info(
+                                {
+                                        zoneId,
+                                        actorId: interaction.user.id,
+                                        targetUserId,
+                                        action: approved ? 'approve' : 'reject'
+                                },
+                                'Join request processed'
+                        );
+                } catch (err) {
+                        this.logger?.warn({ err, zoneId, actorId: interaction.user.id }, 'Failed to handle approval button');
+                        await interaction.followUp({
+                                content: `Impossible de traiter la demande : ${err.message || err}`,
+                                flags: MessageFlags.Ephemeral
+                        }).catch(() => {});
+                }
+
+                return true;
+        }
+
+        async handlePolicySelect(interaction) {
+                const [_, __, action, zoneIdRaw] = interaction.customId.split(':');
+                if (action !== 'set') return false;
+                const zoneId = Number(zoneIdRaw);
+                if (!zoneId || !interaction.values?.length) {
+                        await interaction.reply({ content: 'Sélection invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+
+                const zone = await this.#getZone(zoneId);
+                if (!zone) {
+                        await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+
+                if (!(await this.#isZoneOwner(zone, interaction.user.id))) {
+                        await interaction.reply({ content: 'Seul l’owner peut modifier la politique.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+
+                const nextPolicy = interaction.values[0];
+                try {
+                        await interaction.deferUpdate();
+                } catch {}
+
+                try {
+                        await this.setPolicy(zoneId, nextPolicy, interaction.user.id);
+                        await this.#refreshPanel(zoneId);
+                        await interaction.followUp({
+                                content: `Politique mise à jour sur **${nextPolicy}**.`,
+                                flags: MessageFlags.Ephemeral
+                        });
+                } catch (err) {
+                        this.logger?.warn({ err, zoneId, actorId: interaction.user.id }, 'Failed to set policy from panel');
+                        await interaction.followUp({
+                                content: `Impossible de mettre à jour la politique : ${err.message || err}`,
+                                flags: MessageFlags.Ephemeral
+                        }).catch(() => {});
+                }
+
+                return true;
+        }
+
+        async handleProfileButton(interaction) {
+                const parts = interaction.customId.split(':');
+                const zoneId = Number(parts.at(-1));
+                if (!zoneId) {
+                        await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+                const zone = await this.#getZone(zoneId);
+                if (!zone) {
+                        await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+                if (zone.policy !== 'open') {
+                        await interaction.reply({ content: 'La zone doit être en politique « open ».', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+                if (!(await this.#isZoneOwner(zone, interaction.user.id))) {
+                        await interaction.reply({ content: 'Seul l’owner peut modifier le profil.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+
+                const modal = this.#buildProfileModal(zone);
+                await interaction.showModal(modal);
+                return true;
+        }
+
+        async handleProfileModal(interaction) {
+                const parts = interaction.customId.split(':');
+                const zoneId = Number(parts.at(-1));
+                if (!zoneId) {
+                        await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+
+                const zone = await this.#getZone(zoneId);
+                if (!zone) {
+                        await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+
+                if (!(await this.#isZoneOwner(zone, interaction.user.id))) {
+                        await interaction.reply({ content: 'Seul l’owner peut modifier le profil.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+
+                const payload = {
+                        profile_title: interaction.fields.getTextInputValue('policyProfileTitle')?.trim(),
+                        profile_desc: interaction.fields.getTextInputValue('policyProfileDesc')?.trim(),
+                        profile_color: interaction.fields.getTextInputValue('policyProfileColor')?.trim(),
+                        profile_tags: interaction.fields.getTextInputValue('policyProfileTags')?.trim(),
+                        profile_dynamic: interaction.fields.getTextInputValue('policyProfileDynamic')?.trim()
+                };
+
+                try {
+                        await this.updateProfile(zoneId, payload, interaction.user.id);
+                        await interaction.reply({
+                                content: 'Profil public mis à jour ✅',
+                                flags: MessageFlags.Ephemeral
+                        });
+                        await this.#refreshPanel(zoneId);
+                } catch (err) {
+                        this.logger?.warn({ err, zoneId, actorId: interaction.user.id }, 'Failed to update policy profile');
+                        await interaction.reply({
+                                content: `Impossible de mettre à jour le profil : ${err.message || err}`,
+                                flags: MessageFlags.Ephemeral
+                        }).catch(() => {});
+                }
+
+                return true;
+        }
+
+        async handleAskModeSelect(interaction) {
+                const zoneId = Number(interaction.customId.split(':').at(-1));
+                if (!zoneId) {
+                        await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+                const zone = await this.#getZone(zoneId);
+                if (!zone) {
+                        await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+                if (zone.policy !== 'ask') {
+                        await interaction.reply({ content: 'Cette zone n’est pas en mode demande.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+                if (!(await this.#isZoneOwner(zone, interaction.user.id))) {
+                        await interaction.reply({ content: 'Seul l’owner peut modifier ce réglage.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+
+                const mode = interaction.values?.[0];
+                if (!mode) {
+                        await interaction.reply({ content: 'Sélection invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+
+                try {
+                        await interaction.deferUpdate();
+                } catch {}
+
+                try {
+                        await this.setAskMode(zoneId, mode, interaction.user.id);
+                        await interaction.followUp({ content: 'Mode de demande mis à jour.', flags: MessageFlags.Ephemeral });
+                        await this.#refreshPanel(zoneId);
+                } catch (err) {
+                        this.logger?.warn({ err, zoneId, actorId: interaction.user.id }, 'Failed to set ask mode');
+                        await interaction.followUp({
+                                content: `Impossible de modifier le mode : ${err.message || err}`,
+                                flags: MessageFlags.Ephemeral
+                        }).catch(() => {});
+                }
+                return true;
+        }
+
+        async handleApproverSelect(interaction) {
+                const zoneId = Number(interaction.customId.split(':').at(-1));
+                if (!zoneId) {
+                        await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+                const zone = await this.#getZone(zoneId);
+                if (!zone) {
+                        await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+                if (zone.policy !== 'ask') {
+                        await interaction.reply({ content: 'Cette zone n’est pas en mode demande.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+                if (!(await this.#isZoneOwner(zone, interaction.user.id))) {
+                        await interaction.reply({ content: 'Seul l’owner peut modifier ce réglage.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+
+                const mode = interaction.values?.[0];
+                if (!mode) {
+                        await interaction.reply({ content: 'Sélection invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+
+                try {
+                        await interaction.deferUpdate();
+                } catch {}
+
+                try {
+                        await this.setApproverMode(zoneId, mode, interaction.user.id);
+                        await interaction.followUp({ content: 'Décideur mis à jour.', flags: MessageFlags.Ephemeral });
+                        await this.#refreshPanel(zoneId);
+                } catch (err) {
+                        this.logger?.warn({ err, zoneId, actorId: interaction.user.id }, 'Failed to set approver mode');
+                        await interaction.followUp({
+                                content: `Impossible de modifier le décideur : ${err.message || err}`,
+                                flags: MessageFlags.Ephemeral
+                        }).catch(() => {});
+                }
+                return true;
+        }
+
+        async handleGenerateCode(interaction) {
+                const zoneId = Number(interaction.customId.split(':').at(-1));
+                if (!zoneId) {
+                        await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+
+                await this.#ensureSchema();
+                const zone = await this.#getZone(zoneId);
+                if (!zone) {
+                        await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral }).catch(() => {})
+;
+                        return true;
+                }
+
+                if (zone.policy !== 'ask' || !['invite', 'both'].includes(zone.ask_join_mode || 'invite')) {
+                        await interaction.reply({
+                                content: 'Cette zone ne permet pas de générer des codes actuellement.',
+                                flags: MessageFlags.Ephemeral
+                        }).catch(() => {});
+                        return true;
+                }
+
+                const guild = interaction.guild ?? (await this.client.guilds.fetch(zone.guild_id).catch(() => null));
+                const actorMember =
+                        interaction.member ?? (guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null);
+
+                if (!(await this.#canModerateRequests(zone, interaction.user.id, actorMember))) {
+                        await interaction.reply({
+                                content: 'Tu ne peux pas générer de codes pour cette zone.',
+                                flags: MessageFlags.Ephemeral
+                        }).catch(() => {});
+                        return true;
+                }
+
+                try {
+                        const { code } = await this.createInviteCode(zone.id, interaction.user.id);
+
+                        const baseContent = interaction.message?.content || '';
+                        const note = `Dernier code généré par <@${interaction.user.id}> : \`${code}\``;
+                        const nextContent = baseContent.includes('Dernier code généré')
+                                ? baseContent.replace(/Dernier code généré[^\n]*/i, note)
+                                : `${baseContent ? `${baseContent}\n` : ''}${note}`;
+                        await interaction.message?.edit({ content: nextContent, components: interaction.message.components }).catch(
+                                () => {}
+                        );
+
+                        await interaction.reply({
+                                content: `Code généré : \`${code}\``,
+                                flags: MessageFlags.Ephemeral
+                        });
+                } catch (err) {
+                        this.logger?.warn({ err, zoneId, actorId: interaction.user.id }, 'Failed to generate invite code');
+                        await interaction.reply({
+                                content: `Impossible de générer un code : ${err.message || err}`,
+                                flags: MessageFlags.Ephemeral
+                        }).catch(() => {});
+                }
+
+                return true;
+        }
+
+        async setPolicy(zoneId, policy, actorId = null) {
+                await this.#ensureSchema();
+                if (!POLICY_VALUES.has(policy)) {
+                        throw new Error('Politique inconnue.');
+                }
+                const zone = await this.#getZone(zoneId);
+                if (!zone) throw new Error('Zone introuvable');
+
+                const updates = { policy };
+                if (policy === 'open') {
+                        if (!zone.profile_title) updates.profile_title = zone.name || 'Zone';
+                        if (!zone.profile_color) {
+                                try {
+                                        updates.profile_color = await this.#resolveOwnerColor(zone);
+                                } catch {
+                                        updates.profile_color = '#5865F2';
+                                }
+                        }
+                        if (zone.profile_dynamic == null) updates.profile_dynamic = 0;
+                }
+
+                if (policy === 'ask') {
+                        if (!ASK_MODES.has(zone.ask_join_mode)) updates.ask_join_mode = 'request';
+                        if (!APPROVER_MODES.has(zone.ask_approver_mode)) updates.ask_approver_mode = 'owner';
+                } else {
+                        updates.ask_join_mode = null;
+                        updates.ask_approver_mode = null;
+                }
+
+                const placeholders = [];
+                const values = [];
+                for (const [key, value] of Object.entries(updates)) {
+                        placeholders.push(`${key} = ?`);
+                        values.push(value);
+                }
+                values.push(zoneId);
+                await this.db.query(`UPDATE zones SET ${placeholders.join(', ')} WHERE id = ?`, values);
+
+                this.logger?.info({ zoneId, actorId, policy }, 'Zone policy updated');
+
+                const updatedZone = await this.#getZone(zoneId);
+
+                if (policy === 'ask') {
+                        if ((updatedZone.ask_approver_mode || 'owner') === 'owner') {
+                                await this.#ensureInterviewRoom(updatedZone);
+                        } else {
+                                await this.#cleanupInterviewRoom(updatedZone);
+                        }
+                        await this.#syncInviteAnchors(updatedZone);
+                } else {
+                        await this.#cleanupInterviewRoom(updatedZone);
+                        await this.#cleanupCodeAnchor(updatedZone);
+                }
+        }
+
+        async updateProfile(zoneId, data, actorId = null) {
+                await this.#ensureSchema();
+                const zone = await this.#getZone(zoneId);
+                if (!zone) throw new Error('Zone introuvable');
+                if (zone.policy !== 'open') throw new Error('La zone doit être en mode open');
+
+                const updates = {};
+
+                const title = (data.profile_title || '').trim();
+                if (!title) throw new Error('Le titre est obligatoire.');
+                updates.profile_title = title.slice(0, 100);
+
+                const desc = (data.profile_desc || '').trim();
+                updates.profile_desc = desc ? desc.slice(0, 1000) : null;
+
+                const color = this.#normalizeColor(data.profile_color);
+                if (data.profile_color && !color) {
+                                throw new Error('Couleur invalide. Utilise un format #RRGGBB.');
+                }
+                updates.profile_color = color;
+
+                const tags = this.#sanitizeTags(data.profile_tags);
+                updates.profile_tags = tags.length ? JSON.stringify(tags) : null;
+
+                const dynamic = this.#sanitizeBoolean(data.profile_dynamic);
+                updates.profile_dynamic = dynamic ? 1 : 0;
+
+                const columns = [];
+                const values = [];
+                for (const [key, value] of Object.entries(updates)) {
+                        columns.push(`${key} = ?`);
+                        values.push(value);
+                }
+                values.push(zoneId);
+                await this.db.query(`UPDATE zones SET ${columns.join(', ')} WHERE id = ?`, values);
+                this.logger?.info({ zoneId, actorId }, 'Zone profile updated');
+        }
+
+        async setAskMode(zoneId, mode, actorId = null) {
+                await this.#ensureSchema();
+                if (!ASK_MODES.has(mode)) throw new Error('Mode invalide');
+                const zone = await this.#getZone(zoneId);
+                if (!zone) throw new Error('Zone introuvable');
+                if (zone.policy !== 'ask') throw new Error('Politique incompatible');
+
+                await this.db.query('UPDATE zones SET ask_join_mode = ? WHERE id = ?', [mode, zoneId]);
+                this.logger?.info({ zoneId, actorId, mode }, 'Ask mode updated');
+
+                const updatedZone = await this.#getZone(zoneId);
+                await this.#syncInviteAnchors(updatedZone);
+        }
+
+        async setApproverMode(zoneId, mode, actorId = null) {
+                await this.#ensureSchema();
+                if (!APPROVER_MODES.has(mode)) throw new Error('Mode invalide');
+                const zone = await this.#getZone(zoneId);
+                if (!zone) throw new Error('Zone introuvable');
+                if (zone.policy !== 'ask') throw new Error('Politique incompatible');
+
+                await this.db.query('UPDATE zones SET ask_approver_mode = ? WHERE id = ?', [mode, zoneId]);
+                this.logger?.info({ zoneId, actorId, mode }, 'Approver mode updated');
+
+                const updatedZone = await this.#getZone(zoneId);
+
+                if (mode === 'owner') {
+                        await this.#ensureInterviewRoom(updatedZone);
+                } else {
+                        await this.#cleanupInterviewRoom(updatedZone);
+                }
+
+                await this.#syncInviteAnchors(updatedZone);
+        }
+
+        async getZone(zoneId) {
+                await this.#ensureSchema();
+                return this.#getZone(zoneId);
+        }
+
+        async listDiscoverableZones({ limit = 3, offset = 0 } = {}) {
+                await this.#ensureSchema();
+                const clampedLimit = Math.min(Math.max(1, Number(limit) || 3), 5);
+                const safeOffset = Math.max(0, Number(offset) || 0);
+
+                const [rows] = await this.db.query(
+                        `SELECT * FROM zones
+                        WHERE policy = 'open'
+                           OR (policy = 'ask' AND ask_join_mode IN ('request','both'))
+                        ORDER BY name ASC
+                        LIMIT ? OFFSET ?`,
+                        [clampedLimit, safeOffset]
+                );
+
+                const [countRows] = await this.db.query(
+                        "SELECT COUNT(*) AS total FROM zones WHERE policy = 'open' OR (policy = 'ask' AND ask_join_mode IN ('request','both'))"
+                );
+
+                const total = countRows?.[0]?.total || 0;
+
+                return {
+                        zones: rows.map((row) => this.#hydrateZoneRow(row)),
+                        total
+                };
+        }
+
+        async isUserMember(zoneId, userId) {
+                const [rows] = await this.db.query(
+                        'SELECT 1 FROM zone_members WHERE zone_id = ? AND user_id = ? LIMIT 1',
+                        [zoneId, userId]
+                );
+                return Boolean(rows?.length);
+        }
+
+        async createJoinRequest(zoneId, userId, options = {}) {
+                await this.#ensureSchema();
+                const zone = await this.#getZone(zoneId);
+                if (!zone) throw new Error('Zone introuvable');
+                if (zone.policy !== 'ask') throw new Error('Zone indisponible pour des demandes.');
+                if (await this.isUserMember(zoneId, userId)) {
+                        return { status: 'already-member', zone };
+                }
+
+                const note = this.#sanitizeJoinNote(options.note);
+
+                const [existing] = await this.db.query(
+                        "SELECT * FROM zone_join_requests WHERE zone_id = ? AND user_id = ? AND status = 'pending' ORDER BY id DESC",
+                        [zoneId, userId]
+                );
+                if (existing?.length) {
+                        return { status: 'already-requested', zone, request: existing[0] };
+                }
+
+                const [result] = await this.db.query(
+                        'INSERT INTO zone_join_requests (zone_id, user_id, note) VALUES (?, ?, ?)',
+                        [zoneId, userId, note]
+                );
+
+                const request = {
+                        id: result.insertId,
+                        zone_id: zoneId,
+                        user_id: userId,
+                        status: 'pending',
+                        created_at: new Date(),
+                        note
+                };
+
+                this.logger?.info({ zoneId, userId }, 'Join request created');
+
+                return { status: 'created', zone, request };
+        }
+
+        async postJoinRequestCard(zone, request, applicantMember = null, context = {}) {
+                if (!zone?.id || !request?.id) return null;
+
+                await this.#ensureSchema();
+
+                const channel = await this.#resolveRequestChannel(zone, context.ensureInterview !== false);
+                if (!channel) return null;
+
+                const embed = this.#buildJoinRequestEmbed(zone, request, applicantMember, context);
+
+                const approveId = `zone:approve:${zone.id}:${request.user_id}`;
+                const rejectId = `zone:reject:${zone.id}:${request.user_id}`;
+
+                const row = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(approveId).setLabel('Accepter').setStyle(ButtonStyle.Success),
+                        new ButtonBuilder().setCustomId(rejectId).setLabel('Refuser').setStyle(ButtonStyle.Danger)
+                );
+
+                const message = await channel.send({ embeds: [embed], components: [row] });
+
+                await this.db.query(
+                        'UPDATE zone_join_requests SET message_channel_id = ?, message_id = ? WHERE id = ?',
+                        [message.channelId, message.id, request.id]
+                );
+
+                this.logger?.info({ zoneId: zone.id, requestId: request.id, channelId: message.channelId }, 'Join request card posted');
+
+                return message;
+        }
+
+        async createInviteCode(zoneId, actorId, options = {}) {
+                await this.#ensureSchema();
+                const zone = await this.#getZone(zoneId);
+                if (!zone) throw new Error('Zone introuvable');
+                if (zone.policy !== 'ask' || !['invite', 'both'].includes(zone.ask_join_mode || 'invite')) {
+                        throw new Error('Cette zone ne permet pas les codes d’invitation.');
+                }
+
+                const maxAttempts = 5;
+                let code = null;
+                for (let i = 0; i < maxAttempts; i += 1) {
+                        code = this.#generateCode();
+                        try {
+                                await this.db.query(
+                                        'INSERT INTO zone_invite_codes (zone_id, code, created_by, expires_at, max_uses) VALUES (?, ?, ?, ?, ?)',
+                                        [
+                                                zoneId,
+                                                code,
+                                                actorId,
+                                                options.expiresAt || null,
+                                                options.maxUses != null ? Number(options.maxUses) : null
+                                        ]
+                                );
+                                break;
+                        } catch (err) {
+                                if (i === maxAttempts - 1) throw err;
+                        }
+                }
+
+                if (!code) throw new Error('Impossible de générer un code.');
+
+                this.logger?.info({ zoneId, actorId }, 'Zone invite code generated');
+
+                return { code, zone };
+        }
+
+        async redeemInviteCode(rawCode, userId) {
+                await this.#ensureSchema();
+                const code = String(rawCode || '').trim().toUpperCase();
+                if (!/^[A-Z0-9]{6}$/.test(code)) {
+                        throw new Error('Code invalide.');
+                }
+
+                const [rows] = await this.db.query('SELECT * FROM zone_invite_codes WHERE code = ?', [code]);
+                const entry = rows?.[0];
+                if (!entry) throw new Error('Code inconnu ou expiré.');
+
+                const zone = await this.#getZone(entry.zone_id);
+                if (!zone) throw new Error('Zone introuvable.');
+
+                if (zone.policy !== 'ask' || !['invite', 'both'].includes(zone.ask_join_mode || 'invite')) {
+                        throw new Error('Cette zone n’accepte plus les codes.');
+                }
+
+                if (entry.expires_at && new Date(entry.expires_at) < new Date()) {
+                        throw new Error('Ce code a expiré.');
+                }
+
+                if (entry.max_uses != null && entry.uses >= entry.max_uses) {
+                        throw new Error('Ce code a atteint sa limite.');
+                }
+
+                if (await this.isUserMember(zone.id, userId)) {
+                        return { status: 'already-member', zone };
+                }
+
+                await this.db.query('UPDATE zone_invite_codes SET uses = uses + 1 WHERE id = ?', [entry.id]);
+
+                await this.#grantZoneMembership(zone, userId);
+
+                this.logger?.info({ zoneId: zone.id, userId }, 'Invite code redeemed');
+
+                return { status: 'joined', zone };
+        }
+
+        async grantMembership(zoneId, userId) {
+                await this.#ensureSchema();
+                const zone = await this.#getZone(zoneId);
+                if (!zone) throw new Error('Zone introuvable');
+                await this.#grantZoneMembership(zone, userId);
+                return zone;
+        }
+
+        async #ensureSchema() {
+                if (this.#schemaReady) return;
+
+                await this.db.query(`ALTER TABLE zones
+                        ADD COLUMN IF NOT EXISTS policy ENUM('open','ask','closed') NOT NULL DEFAULT 'closed',
+                        ADD COLUMN IF NOT EXISTS ask_join_mode ENUM('request','invite','both') NULL,
+                        ADD COLUMN IF NOT EXISTS ask_approver_mode ENUM('owner','members') NULL,
+                        ADD COLUMN IF NOT EXISTS profile_title VARCHAR(100) NULL,
+                        ADD COLUMN IF NOT EXISTS profile_desc TEXT NULL,
+                        ADD COLUMN IF NOT EXISTS profile_color VARCHAR(7) NULL,
+                        ADD COLUMN IF NOT EXISTS profile_tags JSON NULL,
+                        ADD COLUMN IF NOT EXISTS profile_dynamic TINYINT(1) NOT NULL DEFAULT 0;`);
+
+                await this.db.query(
+                        "UPDATE zones SET policy='ask', ask_join_mode = COALESCE(ask_join_mode, 'invite') WHERE policy = 'invite'"
+                ).catch(() => {});
+
+                await this.db.query(
+                        "ALTER TABLE zones MODIFY COLUMN policy ENUM('open','ask','closed') NOT NULL DEFAULT 'closed'"
+                ).catch(() => {});
+
+                await this.db.query(`CREATE TABLE IF NOT EXISTS zone_invite_codes (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        zone_id INT NOT NULL,
+                        code VARCHAR(16) NOT NULL UNIQUE,
+                        created_by VARCHAR(20) NOT NULL,
+                        expires_at DATETIME NULL,
+                        max_uses INT NULL,
+                        uses INT NOT NULL DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        INDEX ix_zone (zone_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+
+                await this.db.query(`CREATE TABLE IF NOT EXISTS zone_join_requests (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        zone_id INT NOT NULL,
+                        user_id VARCHAR(20) NOT NULL,
+                        status ENUM('pending','accepted','declined','expired') NOT NULL DEFAULT 'pending',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        decided_by VARCHAR(20) NULL,
+                        decided_at DATETIME NULL,
+                        note TEXT NULL,
+                        message_channel_id VARCHAR(20) NULL,
+                        message_id VARCHAR(20) NULL,
+                        INDEX ix_zone_user (zone_id, user_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+
+                await this.db.query(`ALTER TABLE zone_join_requests
+                        ADD COLUMN IF NOT EXISTS note TEXT NULL,
+                        ADD COLUMN IF NOT EXISTS message_channel_id VARCHAR(20) NULL,
+                        ADD COLUMN IF NOT EXISTS message_id VARCHAR(20) NULL`).catch(() => {});
+
+                await this.db.query(`ALTER TABLE panel_messages
+                        ADD COLUMN IF NOT EXISTS code_anchor_channel_id VARCHAR(32) NULL,
+                        ADD COLUMN IF NOT EXISTS code_anchor_message_id VARCHAR(32) NULL`).catch(() => {});
+
+                this.#schemaReady = true;
+        }
+
+        async #getZone(zoneId) {
+                const [rows] = await this.db.query('SELECT * FROM zones WHERE id = ?', [zoneId]);
+                if (!rows?.length) return null;
+                return this.#hydrateZoneRow(rows[0]);
+        }
+
+        #hydrateZoneRow(row) {
+                if (!row) return null;
+                const zone = { ...row };
+                if (zone.profile_tags) {
+                        if (Array.isArray(zone.profile_tags)) {
+                                zone.profile_tags = zone.profile_tags;
+                        } else if (typeof zone.profile_tags === 'string') {
+                                try {
+                                        zone.profile_tags = JSON.parse(zone.profile_tags);
+                                } catch {
+                                        zone.profile_tags = null;
+                                }
+                        }
+                }
+                if (zone.profile_dynamic != null) {
+                        zone.profile_dynamic = Number(zone.profile_dynamic) ? 1 : 0;
+                }
+                return zone;
+        }
+
+        async #isZoneOwner(zone, userId) {
+                if (!zone) return false;
+                if (String(zone.owner_user_id) === String(userId)) return true;
+                if (!zone.id) return false;
+                const [rows] = await this.db.query(
+                        'SELECT role FROM zone_members WHERE zone_id = ? AND user_id = ? LIMIT 1',
+                        [zone.id, userId]
+                );
+                return rows?.[0]?.role === 'owner';
+        }
+
+        async #refreshPanel(zoneId) {
+                if (!this.panelService?.refresh) return;
+                try {
+                        await this.panelService.refresh(zoneId, ['policy']);
+                } catch (err) {
+                        this.logger?.warn({ err, zoneId }, 'Failed to refresh policy panel');
+                }
+        }
+
+        #buildProfileModal(zone) {
+                const modal = new ModalBuilder()
+                        .setCustomId(`panel:policy:profile:modal:${zone.id}`)
+                        .setTitle('Profil public de la zone');
+
+                const titleInput = new TextInputBuilder()
+                        .setCustomId('policyProfileTitle')
+                        .setLabel('Titre public')
+                        .setStyle(TextInputStyle.Short)
+                        .setValue(zone.profile_title || zone.name || '')
+                        .setRequired(true)
+                        .setMaxLength(100);
+
+                const descInput = new TextInputBuilder()
+                        .setCustomId('policyProfileDesc')
+                        .setLabel('Description (optionnel)')
+                        .setStyle(TextInputStyle.Paragraph)
+                        .setRequired(false)
+                        .setMaxLength(1000)
+                        .setValue(zone.profile_desc?.slice(0, 1000) || '');
+
+                const colorInput = new TextInputBuilder()
+                        .setCustomId('policyProfileColor')
+                        .setLabel('Couleur (#RRGGBB)')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(false)
+                        .setMaxLength(7)
+                        .setValue(zone.profile_color || '');
+
+                const tags = Array.isArray(zone.profile_tags) ? zone.profile_tags.join(', ') : '';
+                const tagsInput = new TextInputBuilder()
+                        .setCustomId('policyProfileTags')
+                        .setLabel('Tags (séparés par des virgules)')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(false)
+                        .setMaxLength(200)
+                        .setValue(tags);
+
+                const dynamicInput = new TextInputBuilder()
+                        .setCustomId('policyProfileDynamic')
+                        .setLabel('Profil dynamique ? (oui/non)')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(false)
+                        .setMaxLength(10)
+                        .setValue(zone.profile_dynamic ? 'oui' : 'non');
+
+                modal.addComponents(
+                        new ActionRowBuilder().addComponents(titleInput),
+                        new ActionRowBuilder().addComponents(descInput),
+                        new ActionRowBuilder().addComponents(colorInput),
+                        new ActionRowBuilder().addComponents(tagsInput),
+                        new ActionRowBuilder().addComponents(dynamicInput)
+                );
+
+                return modal;
+        }
+
+        #normalizeColor(value) {
+                if (!value) return null;
+                let hex = String(value).trim();
+                if (!hex.length) return null;
+                if (!hex.startsWith('#')) hex = `#${hex}`;
+                if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return null;
+                return hex.toUpperCase();
+        }
+
+        #sanitizeTags(raw) {
+                if (!raw) return [];
+                let source = raw;
+                if (Array.isArray(raw)) {
+                        source = raw;
+                } else if (typeof raw === 'string') {
+                        source = raw.split(',');
+                } else {
+                        return [];
+                }
+                return source
+                        .map((entry) => String(entry || '').trim().toLowerCase())
+                        .filter((entry) => entry.length)
+                        .slice(0, 8);
+        }
+
+        #sanitizeBoolean(value) {
+                if (typeof value === 'boolean') return value;
+                if (value == null) return false;
+                const normalized = String(value).trim().toLowerCase();
+                return ['oui', 'yes', 'true', 'on', '1'].includes(normalized);
+        }
+
+        async #resolveOwnerColor(zone) {
+                if (!zone) throw new Error('Zone invalide');
+                const guild = await this.client.guilds.fetch(zone.guild_id);
+                if (zone.role_owner_id) {
+                        const ownerRole = await guild.roles.fetch(zone.role_owner_id).catch(() => null);
+                        if (ownerRole?.hexColor && ownerRole.hexColor !== '#000000') {
+                                return ownerRole.hexColor.toUpperCase();
+                        }
+                }
+                if (zone.role_member_id) {
+                        const memberRole = await guild.roles.fetch(zone.role_member_id).catch(() => null);
+                        if (memberRole?.hexColor && memberRole.hexColor !== '#000000') {
+                                return memberRole.hexColor.toUpperCase();
+                        }
+                }
+                return '#5865F2';
+        }
+
+        async #ensureInterviewRoom(zone) {
+                try {
+                        const guild = await this.client.guilds.fetch(zone.guild_id);
+                        const existing = await this.#findInterviewRoom(zone);
+                        if (existing) return existing;
+
+                        const channel = await guild.channels.create({
+                                name: 'cv-entretien',
+                                type: ChannelType.GuildText,
+                                parent: zone.category_id,
+                                reason: 'Zone join requests (owner)',
+                                topic: 'Salon privé pour examiner les demandes d’entrée.'
+                        });
+
+                        await this.#applyInterviewPermissions(zone, channel);
+
+                        const panelChannel = await guild.channels.fetch(zone.text_panel_id).catch(() => null);
+                        if (panelChannel?.parentId === channel.parentId) {
+                                await channel.setPosition(panelChannel.position + 1).catch(() => {});
+                        }
+
+                        this.logger?.info({ zoneId: zone.id, channelId: channel.id }, 'Created cv-entretien channel');
+                        return channel;
+                } catch (err) {
+                        this.logger?.warn({ err, zoneId: zone.id }, 'Failed to ensure cv-entretien');
+                        throw err;
+                }
+        }
+
+        async #cleanupInterviewRoom(zone) {
+                const channel = await this.#findInterviewRoom(zone);
+                if (!channel) return;
+                try {
+                        await channel.delete('Zone join requests mode updated');
+                        this.logger?.info({ zoneId: zone.id, channelId: channel.id }, 'Deleted cv-entretien channel');
+                } catch (err) {
+                        this.logger?.warn({ err, zoneId: zone.id, channelId: channel.id }, 'Failed to delete cv-entretien channel');
+                }
+        }
+
+        async #findInterviewRoom(zone) {
+                        if (!zone?.category_id) return null;
+                        try {
+                                const guild = await this.client.guilds.fetch(zone.guild_id);
+                                const collection = await guild.channels.fetch();
+                                return (
+                                        [...collection.values()].find(
+                                                (channel) =>
+                                                        channel?.type === ChannelType.GuildText &&
+                                                        channel?.parentId === zone.category_id &&
+                                                        channel?.name === 'cv-entretien'
+                                        ) || null
+                                );
+                        } catch (err) {
+                                this.logger?.warn({ err, zoneId: zone?.id }, 'Failed to find cv-entretien channel');
+                                return null;
+                        }
+        }
+
+        async #applyInterviewPermissions(zone, channel) {
+                if (!channel) return;
+                try {
+                        const guild = channel.guild || (await this.client.guilds.fetch(zone.guild_id));
+                        const ownerRole = zone.role_owner_id
+                                ? await guild.roles.fetch(zone.role_owner_id).catch(() => null)
+                                : null;
+                        const memberRole = zone.role_member_id
+                                ? await guild.roles.fetch(zone.role_member_id).catch(() => null)
+                                : null;
+                        const botMember = guild.members.me || (await guild.members.fetch(this.client.user.id).catch(() => null));
+                        const botRole = botMember?.roles?.highest || null;
+
+                        const overwrites = [
+                                { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] }
+                        ];
+                        if (memberRole) {
+                                overwrites.push({ id: memberRole.id, deny: [PermissionFlagsBits.ViewChannel] });
+                        }
+                        if (ownerRole) {
+                                overwrites.push({
+                                        id: ownerRole.id,
+                                        allow: [
+                                                PermissionFlagsBits.ViewChannel,
+                                                PermissionFlagsBits.SendMessages,
+                                                PermissionFlagsBits.ReadMessageHistory,
+                                                PermissionFlagsBits.AttachFiles,
+                                                PermissionFlagsBits.EmbedLinks
+                                        ]
+                                });
+                        }
+                        if (botRole) {
+                                overwrites.push({
+                                        id: botRole.id,
+                                        allow: [
+                                                PermissionFlagsBits.ViewChannel,
+                                                PermissionFlagsBits.SendMessages,
+                                                PermissionFlagsBits.ManageMessages,
+                                                PermissionFlagsBits.ReadMessageHistory,
+                                                PermissionFlagsBits.ManageChannels
+                                        ]
+                                });
+                        }
+
+                        await channel.permissionOverwrites.set(overwrites);
+
+                        if (channel.parent) {
+                                await applyZoneOverwrites(
+                                        channel.parent,
+                                        {
+                                                everyoneRole: guild.roles.everyone,
+                                                zoneMemberRole: memberRole,
+                                                zoneOwnerRole: ownerRole
+                                        },
+                                        botRole,
+                                        {
+                                                panel: await guild.channels.fetch(zone.text_panel_id).catch(() => null),
+                                                reception: await guild.channels.fetch(zone.text_reception_id).catch(() => null),
+                                                general: await guild.channels.fetch(zone.text_general_id).catch(() => null),
+                                                chuchotement: await guild.channels.fetch(zone.text_anon_id).catch(() => null),
+                                                voice: await guild.channels.fetch(zone.voice_id).catch(() => null),
+                                                interview: channel
+                                        }
+                                ).catch(() => {});
+                        }
+                } catch (err) {
+                        this.logger?.warn({ err, zoneId: zone.id }, 'Failed to apply interview permissions');
+                }
+        }
+
+        async #ensurePanelRecord(zoneId) {
+                const [rows] = await this.db.query('SELECT * FROM panel_messages WHERE zone_id = ?', [zoneId]);
+                if (rows?.length) return rows[0];
+                await this.db.query(
+                        'INSERT INTO panel_messages (zone_id) VALUES (?) ON DUPLICATE KEY UPDATE zone_id = zone_id',
+                        [zoneId]
+                );
+                const [fresh] = await this.db.query('SELECT * FROM panel_messages WHERE zone_id = ?', [zoneId]);
+                return fresh?.[0] || null;
+        }
+
+        async #syncInviteAnchors(zone) {
+                if (!zone?.id) return;
+                if (zone.policy !== 'ask' || !['invite', 'both'].includes(zone.ask_join_mode || 'invite')) {
+                        await this.#cleanupCodeAnchor(zone);
+                        return;
+                }
+                await this.#ensureCodeAnchor(zone);
+        }
+
+        async #ensureCodeAnchor(zone) {
+                const record = await this.#ensurePanelRecord(zone.id);
+                const channel = await this.#resolveCodeChannel(zone);
+                if (!channel) return null;
+
+                let message = null;
+                if (record?.code_anchor_channel_id && record?.code_anchor_message_id) {
+                        if (record.code_anchor_channel_id === channel.id) {
+                                message = await channel.messages.fetch(record.code_anchor_message_id).catch(() => null);
+                        } else {
+                                await this.#deleteStoredAnchor(record.code_anchor_channel_id, record.code_anchor_message_id);
+                        }
+                }
+
+                const row = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                                .setCustomId(`panel:policy:code:gen:${zone.id}`)
+                                .setLabel('Générer un code')
+                                .setStyle(ButtonStyle.Secondary)
+                );
+
+                const content = (zone.ask_approver_mode || 'owner') === 'owner'
+                        ? 'Clique pour générer un code d’invitation à partager au candidat.'
+                        : 'Les membres peuvent générer un code temporaire et le transmettre en privé.';
+
+                if (message) {
+                        await message.edit({ content, components: [row] }).catch(() => {});
+                } else {
+                        message = await channel.send({ content, components: [row] });
+                        if ((zone.ask_approver_mode || 'owner') === 'members') {
+                                await message.pin().catch(() => {});
+                        }
+                }
+
+                await this.db.query(
+                        'INSERT INTO panel_messages (zone_id, code_anchor_channel_id, code_anchor_message_id) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE code_anchor_channel_id = VALUES(code_anchor_channel_id), code_anchor_message_id = VALUES(code_anchor_message_id)',
+                        [zone.id, message.channelId, message.id]
+                );
+
+                return message;
+        }
+
+        async #cleanupCodeAnchor(zone) {
+                const record = await this.#ensurePanelRecord(zone.id);
+                if (!record) return;
+                if (record.code_anchor_channel_id && record.code_anchor_message_id) {
+                        await this.#deleteStoredAnchor(record.code_anchor_channel_id, record.code_anchor_message_id);
+                }
+                await this.db.query(
+                        'UPDATE panel_messages SET code_anchor_channel_id = NULL, code_anchor_message_id = NULL WHERE zone_id = ?',
+                        [zone.id]
+                ).catch(() => {});
+        }
+
+        async #deleteStoredAnchor(channelId, messageId) {
+                if (!channelId || !messageId) return;
+                const channel = await this.client.channels.fetch(channelId).catch(() => null);
+                if (!channel?.isTextBased?.()) return;
+                const message = await channel.messages.fetch(messageId).catch(() => null);
+                if (!message) return;
+                await message.unpin().catch(() => {});
+                await message.delete().catch(() => {});
+        }
+
+        async #resolveCodeChannel(zone) {
+                const approver = zone.ask_approver_mode || 'owner';
+                if (approver === 'owner') {
+                        return this.#ensureInterviewRoom(zone);
+                }
+                if (!zone.text_reception_id) return null;
+                return this.client.channels.fetch(zone.text_reception_id).catch(() => null);
+        }
+
+        async #resolveRequestChannel(zone, ensureInterview = true) {
+                const approver = zone.ask_approver_mode || 'owner';
+                if (approver === 'owner') {
+                        return ensureInterview ? this.#ensureInterviewRoom(zone) : this.#findInterviewRoom(zone);
+                }
+                if (!zone.text_reception_id) return null;
+                return this.client.channels.fetch(zone.text_reception_id).catch(() => null);
+        }
+
+        #sanitizeJoinNote(value) {
+                if (!value) return null;
+                const note = String(value).trim();
+                if (!note.length) return null;
+                return note.slice(0, 1000);
+        }
+
+        #buildJoinRequestEmbed(zone, request, applicantMember, context = {}) {
+                const embed = new EmbedBuilder()
+                        .setTitle(`Demande d’entrée — ${zone.name}`)
+                        .setDescription(`<@${request.user_id}> souhaite rejoindre la zone.`)
+                        .setColor(zone.profile_color || 0x5865f2)
+                        .addFields({ name: 'Membre', value: `<@${request.user_id}> (${request.user_id})`, inline: false })
+                        .setTimestamp(new Date());
+
+                if (applicantMember?.roles?.cache?.size) {
+                        embed.addFields({
+                                name: 'Rôles existants',
+                                value: applicantMember.roles.cache
+                                        .filter((role) => role.id !== applicantMember.guild.roles.everyone.id)
+                                        .map((role) => role.toString())
+                                        .slice(0, 5)
+                                        .join(' ') || 'Aucun',
+                                inline: false
+                        });
+                }
+
+                if (request.note) {
+                        embed.addFields({ name: 'Motivation', value: request.note, inline: false });
+                }
+
+                if (context?.source) {
+                        embed.setFooter({ text: `Source : ${context.source}` });
+                }
+
+                return embed;
+        }
+
+        async #grantZoneMembership(zone, userId) {
+                if (!zone?.id) return;
+                if (this.services?.zone?.addMember) {
+                                try {
+                                        await this.services.zone.addMember(zone.id, userId);
+                                        return;
+                                } catch (err) {
+                                        this.logger?.warn({ err, zoneId: zone.id, userId }, 'ZoneService addMember failed, falling back');
+                                }
+                }
+
+                try {
+                        const guild = await this.client.guilds.fetch(zone.guild_id);
+                        const member = await guild.members.fetch(userId).catch(() => null);
+                        const roleMember = zone.role_member_id
+                                ? await guild.roles.fetch(zone.role_member_id).catch(() => null)
+                                : null;
+                        if (member && roleMember) {
+                                await member.roles.add(roleMember).catch(() => {});
+                        }
+                        await this.db.query(
+                                'INSERT INTO zone_members (zone_id, user_id, role) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE role = VALUES(role)',
+                                [zone.id, userId, 'member']
+                        );
+                } catch (err) {
+                        this.logger?.warn({ err, zoneId: zone.id, userId }, 'Failed to grant membership fallback');
+                }
+        }
+
+        async #dmUser(userId, payload) {
+                if (!payload) return;
+                try {
+                        const user = await this.client.users.fetch(userId);
+                        await user.send(payload).catch(() => {});
+                } catch {}
+        }
+
+        async #disableInteractionRow(message) {
+                if (!message?.components?.length) return;
+                try {
+                        const rows = message.components.map((row) => {
+                                const newRow = new ActionRowBuilder();
+                                for (const component of row.components) {
+                                        if (component.data?.type === 2 || component.style) {
+                                                newRow.addComponents(ButtonBuilder.from(component).setDisabled(true));
+                                        }
+                                }
+                                return newRow;
+                        });
+                        await message.edit({ components: rows }).catch(() => {});
+                } catch {}
+        }
+
+        async #canModerateRequests(zone, userId, member = null) {
+                if (await this.#isZoneOwner(zone, userId)) return true;
+                const approver = zone.ask_approver_mode || 'owner';
+                if (approver === 'members') {
+                        if (member) {
+                                return member.roles?.cache?.has(zone.role_member_id) || false;
+                        }
+                        try {
+                                const guild = await this.client.guilds.fetch(zone.guild_id);
+                                const fetchedMember = await guild.members.fetch(userId).catch(() => null);
+                                return fetchedMember?.roles?.cache?.has(zone.role_member_id) || false;
+                        } catch {
+                                return false;
+                        }
+                }
+                return false;
+        }
+
+        #generateCode() {
+                const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                let output = '';
+                for (let i = 0; i < 6; i += 1) {
+                        const idx = crypto.randomInt(0, alphabet.length);
+                        output += alphabet[idx];
+                }
+                return output;
+        }
 }
 
 module.exports = { PolicyService };
