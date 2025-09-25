@@ -596,26 +596,147 @@ class PanelService {
 		return { embed, components: rows };
 	}
 
-	async renderPolicy(zoneRow) {
-		const embed = new EmbedBuilder()
-			.setColor(0x3498db)
-			.setTitle('🔐 Politique d’entrée')
-			.setDescription(`Politique actuelle : **${zoneRow.policy || 'closed'}**\nTypes: \`closed\`, \`ask\`, \`invite\`, \`open\``);
+       async renderPolicy(zoneRow) {
+               const policy = zoneRow.policy || 'closed';
+               const helperMap = {
+                       open: 'Accès immédiat pour toute personne qui clique sur « Rejoindre ».',
+                       ask: 'Les nouvelles personnes doivent passer par une demande ou un code.',
+                       closed: 'Aucun accès public — uniquement les membres actuels.'
+               };
 
-		const row = new ActionRowBuilder().addComponents(
-			new StringSelectMenuBuilder()
-				.setCustomId(`panel:policy:set:${zoneRow.id}`)
-				.setPlaceholder('Changer la politique…')
-				.addOptions([
-					{ label: 'closed', value: 'closed' },
-					{ label: 'ask', value: 'ask' },
-					{ label: 'invite', value: 'invite' },
-					{ label: 'open', value: 'open' }
-				])
-		);
+               let resolvedColor = 0x5865f2;
+               try {
+                       resolvedColor = await this.#resolveZoneColor(zoneRow);
+               } catch {}
 
-		return { embed, components: [row] };
-	}
+               const embed = new EmbedBuilder()
+                       .setColor(resolvedColor)
+                       .setTitle('🔐 Politique d’entrée')
+                       .setDescription(
+                               `Politique actuelle : **${policy}**\n${helperMap[policy] || ''}`.trim()
+                       );
+
+               if (policy === 'ask') {
+                       const mode = zoneRow.ask_join_mode || 'request';
+                       const approver = zoneRow.ask_approver_mode || 'owner';
+                       embed.addFields(
+                               {
+                                       name: 'Mode de demande',
+                                       value:
+                                               mode === 'both'
+                                                       ? 'Demande ou code'
+                                                       : mode === 'invite'
+                                                       ? 'Codes uniquement'
+                                                       : 'Demande classique',
+                                       inline: false
+                               },
+                               {
+                                       name: 'Décideur',
+                                       value: approver === 'members' ? 'Membres de la zone' : 'Owner uniquement',
+                                       inline: false
+                               }
+                       );
+               }
+
+               if (policy === 'open') {
+                       const profileTitle = zoneRow.profile_title || zoneRow.name || 'Profil public';
+                       const profileDesc = zoneRow.profile_desc?.trim() ||
+                               'Aucune description configurée pour l’instant.';
+                       embed.addFields(
+                               { name: 'Titre public', value: profileTitle.slice(0, 100), inline: false },
+                               { name: 'Description', value: profileDesc.slice(0, 200), inline: false }
+                       );
+
+                       const tags = Array.isArray(zoneRow.profile_tags)
+                               ? zoneRow.profile_tags
+                               : this.#parseTags(zoneRow.profile_tags);
+                       if (tags?.length) {
+                               embed.addFields({ name: 'Tags', value: tags.map((tag) => `#${tag}`).join(' · '), inline: false });
+                       }
+                       if (zoneRow.profile_dynamic) {
+                               embed.setFooter({ text: 'Profil dynamique activé' });
+                       }
+               }
+
+               const components = [];
+
+               const policySelect = new StringSelectMenuBuilder()
+                       .setCustomId(`panel:policy:set:${zoneRow.id}`)
+                       .setPlaceholder('Choisir une politique…')
+                       .setMinValues(1)
+                       .setMaxValues(1)
+                       .addOptions(
+                               ['open', 'ask', 'closed'].map((value) => ({
+                                       label: value,
+                                       value,
+                                       default: value === policy
+                               }))
+                       );
+               components.push(new ActionRowBuilder().addComponents(policySelect));
+
+               if (policy === 'open') {
+                       const buttonRow = new ActionRowBuilder().addComponents(
+                               new ButtonBuilder()
+                                       .setCustomId(`panel:policy:profile:${zoneRow.id}`)
+                                       .setLabel('Personnaliser le profil public')
+                                       .setStyle(ButtonStyle.Primary)
+                       );
+                       components.push(buttonRow);
+               }
+
+               if (policy === 'ask') {
+                       const joinModeSelect = new StringSelectMenuBuilder()
+                               .setCustomId(`panel:policy:askmode:${zoneRow.id}`)
+                               .setPlaceholder('Mode de demande…')
+                               .setMinValues(1)
+                               .setMaxValues(1)
+                               .addOptions([
+                                       {
+                                               label: 'Sur demande',
+                                               value: 'request',
+                                               description: 'Les personnes soumettent une demande classique.',
+                                               default: (zoneRow.ask_join_mode || 'request') === 'request'
+                                       },
+                                       {
+                                               label: 'Sur invitation',
+                                               value: 'invite',
+                                               description: 'Accès via codes générés.',
+                                               default: zoneRow.ask_join_mode === 'invite'
+                                       },
+                                       {
+                                               label: 'Les deux',
+                                               value: 'both',
+                                               description: 'Demande ou code, selon la situation.',
+                                               default: zoneRow.ask_join_mode === 'both'
+                                       }
+                               ]);
+
+                       const approverSelect = new StringSelectMenuBuilder()
+                               .setCustomId(`panel:policy:approver:${zoneRow.id}`)
+                               .setPlaceholder('Qui approuve ?')
+                               .setMinValues(1)
+                               .setMaxValues(1)
+                               .addOptions([
+                                       {
+                                               label: 'Owner',
+                                               value: 'owner',
+                                               description: 'Le propriétaire tranche chaque demande.',
+                                               default: (zoneRow.ask_approver_mode || 'owner') === 'owner'
+                                       },
+                                       {
+                                               label: 'Membres',
+                                               value: 'members',
+                                               description: 'La communauté décide dans #reception.',
+                                               default: zoneRow.ask_approver_mode === 'members'
+                                       }
+                               ]);
+
+                       components.push(new ActionRowBuilder().addComponents(joinModeSelect));
+                       components.push(new ActionRowBuilder().addComponents(approverSelect));
+               }
+
+               return { embed, components };
+       }
 
 	// ===== helpers
 
@@ -845,14 +966,38 @@ class PanelService {
 		return overwrites;
 	}
 
-	#normalizeColor(value) {
-		if (!value) return null;
-		let input = value.trim();
-		if (!input.length) return null;
-		if (input.startsWith('#')) input = input.slice(1);
-		if (!/^[0-9a-fA-F]{6}$/.test(input)) return null;
-		return `#${input.toUpperCase()}`;
-	}
+        #normalizeColor(value) {
+                if (!value) return null;
+                let input = value.trim();
+                if (!input.length) return null;
+                if (input.startsWith('#')) input = input.slice(1);
+                if (!/^[0-9a-fA-F]{6}$/.test(input)) return null;
+                return `#${input.toUpperCase()}`;
+        }
+
+        #parseTags(raw) {
+                if (!raw) return [];
+                if (Array.isArray(raw)) {
+                        return raw
+                                .map((entry) => String(entry || '').trim().toLowerCase())
+                                .filter((entry) => entry.length)
+                                .slice(0, 10);
+                }
+                if (typeof raw === 'string') {
+                        try {
+                                const parsed = JSON.parse(raw);
+                                if (Array.isArray(parsed)) {
+                                        return this.#parseTags(parsed);
+                                }
+                        } catch {}
+                        return raw
+                                .split(',')
+                                .map((entry) => entry.trim().toLowerCase())
+                                .filter((entry) => entry.length)
+                                .slice(0, 10);
+                }
+                return [];
+        }
 
         #parseChannelType(raw) {
                 if (!raw) return null;

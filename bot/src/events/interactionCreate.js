@@ -35,6 +35,15 @@ module.exports = {
 
                         if (interaction.isStringSelectMenu()) {
                                 const id = interaction.customId || '';
+                                if (id.startsWith('panel:policy:set:')) {
+                                        return services.policy.handlePolicySelect(interaction);
+                                }
+                                if (id.startsWith('panel:policy:askmode:')) {
+                                        return services.policy.handleAskModeSelect(interaction);
+                                }
+                                if (id.startsWith('panel:policy:approver:')) {
+                                        return services.policy.handleApproverSelect(interaction);
+                                }
                                 if (id.startsWith('panel:')) {
                                         return services.panel.handleSelectMenu(interaction);
                                 }
@@ -42,6 +51,15 @@ module.exports = {
 
                         if (interaction.isButton()) {
                                 const id = interaction.customId || '';
+                                if (id.startsWith('welcome:')) {
+                                        return services.welcome.handleButton(interaction);
+                                }
+                                if (id.startsWith('panel:policy:profile:')) {
+                                        return services.policy.handleProfileButton(interaction);
+                                }
+                                if (id.startsWith('panel:policy:code:gen:')) {
+                                        return services.policy.handleGenerateCode(interaction);
+                                }
                                 if (id.startsWith('zone:approve:') || id.startsWith('zone:reject:')) {
                                         return services.policy.handleApprovalButton(interaction);
                                 }
@@ -56,15 +74,21 @@ module.exports = {
                                 }
                         }
 
-if (interaction.type === InteractionType.ModalSubmit) {
-const id = interaction.customId || '';
-if (id.startsWith('zone:request:')) {
-return services.zone.handleZoneRequestModal(interaction);
-}
-if (id.startsWith('panel:')) {
-return services.panel.handleModal(interaction);
-}
-}
+                        if (interaction.type === InteractionType.ModalSubmit) {
+                                const id = interaction.customId || '';
+                                if (id.startsWith('zone:request:')) {
+                                        return services.zone.handleZoneRequestModal(interaction);
+                                }
+                                if (id.startsWith('panel:policy:profile:modal:')) {
+                                        return services.policy.handleProfileModal(interaction);
+                                }
+                                if (id.startsWith('welcome:')) {
+                                        return services.welcome.handleModal(interaction);
+                                }
+                                if (id.startsWith('panel:')) {
+                                        return services.panel.handleModal(interaction);
+                                }
+                        }
 		} catch (err) {
 			console.error('[interactionCreate] error:', err);
                         if (interaction && !interaction.replied) {
