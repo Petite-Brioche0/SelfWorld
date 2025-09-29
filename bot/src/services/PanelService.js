@@ -13,11 +13,18 @@ const {
 
 class PanelService {
 	#schemaReady = false;
-	constructor(client, db, logger = null) {
-		this.client = client;
-		this.db = db;
-		this.logger = logger;
-	}
+        constructor(client, db, logger = null, services = null) {
+                this.client = client;
+                this.db = db;
+                this.logger = logger;
+                this.services = services || null;
+                this.activity = services?.activity || null;
+        }
+
+        setServices(services) {
+                this.services = services || null;
+                this.activity = services?.activity || null;
+        }
 
 	async renderInitialPanel({ zone }) {
 		if (!zone?.id) return;
@@ -653,8 +660,17 @@ class PanelService {
                        if (tags?.length) {
                                embed.addFields({ name: 'Tags', value: tags.map((tag) => `#${tag}`).join(' · '), inline: false });
                        }
-                       if (zoneRow.profile_dynamic) {
-                               embed.setFooter({ text: 'Profil dynamique activé' });
+
+                       const activityService = this.#getActivityService();
+                       if (activityService?.getZoneActivityScore && activityService?.buildProgressBar) {
+                               try {
+                                       const score = await activityService.getZoneActivityScore(zoneRow.id, 14);
+                                       const bar = activityService.buildProgressBar(score);
+                                       const pct = (score * 100) | 0;
+                                       embed.addFields({ name: 'Activité (14j)', value: `${bar}  ${pct}%`, inline: false });
+                               } catch (err) {
+                                       this.logger?.warn({ err, zoneId: zoneRow.id }, 'Failed to compute zone activity score');
+                               }
                        }
                }
 
@@ -740,10 +756,19 @@ class PanelService {
 
 	// ===== helpers
 
-	async #getZone(zoneId) {
-		const [rows] = await this.db.query('SELECT * FROM zones WHERE id=?', [zoneId]);
-		return rows?.[0] || null;
-	}
+        #getActivityService() {
+                if (this.activity) return this.activity;
+                const fromServices = this.services?.activity || this.client?.context?.services?.activity || null;
+                if (fromServices) {
+                        this.activity = fromServices;
+                }
+                return this.activity;
+        }
+
+        async #getZone(zoneId) {
+                const [rows] = await this.db.query('SELECT * FROM zones WHERE id=?', [zoneId]);
+                return rows?.[0] || null;
+        }
 
 	async #fetchChannel(id) {
 		if (!id) return null;

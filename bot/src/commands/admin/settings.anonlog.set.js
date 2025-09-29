@@ -1,12 +1,14 @@
 
-const { SlashCommandBuilder, ChannelType, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, ChannelType, MessageFlags, PermissionFlagsBits } = require('discord.js');
 
 module.exports = {
-	ownerOnly: true,
-	data: new SlashCommandBuilder()
-		.setName('settings-anonlog-set')
-		.setDescription('Définir le salon admin pour le log des messages anonymes')
-		.addChannelOption(o => o.setName('channel').setDescription('Salon #public-anonyme').addChannelTypes(ChannelType.GuildText).setRequired(true)),
+        ownerOnly: true,
+        data: new SlashCommandBuilder()
+                .setName('settings-anonlog-set')
+                .setDescription('Définir le salon admin pour le log des messages anonymes')
+                .setDMPermission(false)
+                .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+                .addChannelOption(o => o.setName('channel').setDescription('Salon #public-anonyme').addChannelTypes(ChannelType.GuildText).setRequired(true)),
 	async execute(interaction, ctx) {
 		const ch = interaction.options.getChannel('channel', true);
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });

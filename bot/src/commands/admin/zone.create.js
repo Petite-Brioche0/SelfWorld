@@ -1,12 +1,14 @@
 
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 
 module.exports = {
-	ownerOnly: true,
-	data: new SlashCommandBuilder()
-		.setName('zone-create')
-		.setDescription('Créer une nouvelle zone')
-		.addStringOption(o => o.setName('name').setDescription('Nom de la zone').setRequired(true))
+        ownerOnly: true,
+        data: new SlashCommandBuilder()
+                .setName('zone-create')
+                .setDescription('Créer une nouvelle zone')
+                .setDMPermission(false)
+                .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+                .addStringOption(o => o.setName('name').setDescription('Nom de la zone').setRequired(true))
 		.addUserOption(o => o.setName('owner').setDescription('Propriétaire de la zone').setRequired(true))
 		.addStringOption(o => o.setName('policy').setDescription("Politique d'entrée")
 			.addChoices(
