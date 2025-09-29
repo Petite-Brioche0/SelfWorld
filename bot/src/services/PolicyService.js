@@ -28,6 +28,30 @@ class PolicyService {
                 this.services = null;
         }
 
+        async #getServerInfo() {
+                try {
+                        const [rows] = await this.db.query('SELECT @@version AS v, @@version_comment AS c');
+                        const v = String(rows?.[0]?.v || '');
+                        const c = String(rows?.[0]?.c || '');
+                        const isMaria = /mariadb/i.test(v) || /mariadb/i.test(c);
+                        return { version: v, comment: c, isMaria };
+                } catch {
+                        return { version: '', comment: '', isMaria: false };
+                }
+        }
+
+        async #columnExists(table, column) {
+                const [rows] = await this.db.query(
+                        `SELECT COUNT(*) AS n
+                         FROM information_schema.COLUMNS
+                         WHERE TABLE_SCHEMA = DATABASE()
+                           AND TABLE_NAME = ?
+                           AND COLUMN_NAME = ?`,
+                        [table, column]
+                );
+                return Number(rows?.[0]?.n || 0) > 0;
+        }
+
         setPanelService(panelService) {
                 this.panelService = panelService;
                 if (this.panelService?.setServices && this.services) {
@@ -742,24 +766,6 @@ class PolicyService {
         async #ensureSchema() {
                 if (this.#schemaReady) return;
 
-                await this.db.query(`ALTER TABLE zones
-                        ADD COLUMN IF NOT EXISTS policy ENUM('open','ask','closed') NOT NULL DEFAULT 'closed',
-                        ADD COLUMN IF NOT EXISTS ask_join_mode ENUM('request','invite','both') NULL,
-                        ADD COLUMN IF NOT EXISTS ask_approver_mode ENUM('owner','members') NULL,
-                        ADD COLUMN IF NOT EXISTS profile_title VARCHAR(100) NULL,
-                        ADD COLUMN IF NOT EXISTS profile_desc TEXT NULL,
-                        ADD COLUMN IF NOT EXISTS profile_color VARCHAR(7) NULL,
-                        ADD COLUMN IF NOT EXISTS profile_tags JSON NULL,
-                        ADD COLUMN IF NOT EXISTS profile_dynamic TINYINT(1) NOT NULL DEFAULT 0;`);
-
-                await this.db.query(
-                        "UPDATE zones SET policy='ask', ask_join_mode = COALESCE(ask_join_mode, 'invite') WHERE policy = 'invite'"
-                ).catch(() => {});
-
-                await this.db.query(
-                        "ALTER TABLE zones MODIFY COLUMN policy ENUM('open','ask','closed') NOT NULL DEFAULT 'closed'"
-                ).catch(() => {});
-
                 await this.db.query(`CREATE TABLE IF NOT EXISTS zone_invite_codes (
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         zone_id INT NOT NULL,
@@ -786,14 +792,74 @@ class PolicyService {
                         INDEX ix_zone_user (zone_id, user_id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
 
-                await this.db.query(`ALTER TABLE zone_join_requests
-                        ADD COLUMN IF NOT EXISTS note TEXT NULL,
-                        ADD COLUMN IF NOT EXISTS message_channel_id VARCHAR(20) NULL,
-                        ADD COLUMN IF NOT EXISTS message_id VARCHAR(20) NULL`).catch(() => {});
+                const { isMaria } = await this.#getServerInfo();
 
-                await this.db.query(`ALTER TABLE panel_messages
-                        ADD COLUMN IF NOT EXISTS code_anchor_channel_id VARCHAR(32) NULL,
-                        ADD COLUMN IF NOT EXISTS code_anchor_message_id VARCHAR(32) NULL`).catch(() => {});
+                const addColumnIfMissing = async (table, column, ddl) => {
+                        const exists = await this.#columnExists(table, column);
+                        if (!exists) {
+                                await this.db.query(`ALTER TABLE \`${table}\` ADD COLUMN ${ddl}`);
+                        }
+                };
+
+                await addColumnIfMissing(
+                        'zones',
+                        'policy',
+                        "policy ENUM('open','ask','closed') NOT NULL DEFAULT 'closed'"
+                );
+                await addColumnIfMissing(
+                        'zones',
+                        'ask_join_mode',
+                        "ask_join_mode ENUM('request','invite','both') NULL"
+                );
+                await addColumnIfMissing(
+                        'zones',
+                        'ask_approver_mode',
+                        "ask_approver_mode ENUM('owner','members') NULL"
+                );
+                await addColumnIfMissing('zones', 'profile_title', 'profile_title VARCHAR(100) NULL');
+                await addColumnIfMissing('zones', 'profile_desc', 'profile_desc TEXT NULL');
+                if (isMaria) {
+                        await addColumnIfMissing('zones', 'profile_tags', 'profile_tags LONGTEXT NULL');
+                } else {
+                        await addColumnIfMissing('zones', 'profile_tags', 'profile_tags JSON NULL');
+                }
+                await addColumnIfMissing('zones', 'profile_color', 'profile_color VARCHAR(7) NULL');
+                await addColumnIfMissing(
+                        'zones',
+                        'profile_dynamic',
+                        'profile_dynamic TINYINT(1) NOT NULL DEFAULT 0'
+                );
+
+                await this.db
+                        .query(
+                                "UPDATE zones SET policy='ask', ask_join_mode = COALESCE(ask_join_mode, 'invite') WHERE policy = 'invite'"
+                        )
+                        .catch(() => {});
+
+                await this.db
+                        .query(
+                                "ALTER TABLE zones MODIFY COLUMN policy ENUM('open','ask','closed') NOT NULL DEFAULT 'closed'"
+                        )
+                        .catch(() => {});
+
+                await addColumnIfMissing('zone_join_requests', 'note', 'note TEXT NULL');
+                await addColumnIfMissing(
+                        'zone_join_requests',
+                        'message_channel_id',
+                        'message_channel_id VARCHAR(20) NULL'
+                );
+                await addColumnIfMissing('zone_join_requests', 'message_id', 'message_id VARCHAR(20) NULL');
+
+                await addColumnIfMissing(
+                        'panel_messages',
+                        'code_anchor_channel_id',
+                        'code_anchor_channel_id VARCHAR(32) NULL'
+                );
+                await addColumnIfMissing(
+                        'panel_messages',
+                        'code_anchor_message_id',
+                        'code_anchor_message_id VARCHAR(32) NULL'
+                );
 
                 this.#schemaReady = true;
         }
