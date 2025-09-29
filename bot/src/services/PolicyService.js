@@ -28,18 +28,6 @@ class PolicyService {
                 this.services = null;
         }
 
-        async #getServerInfo() {
-                try {
-                        const [rows] = await this.db.query('SELECT @@version AS v, @@version_comment AS c');
-                        const v = String(rows?.[0]?.v || '');
-                        const c = String(rows?.[0]?.c || '');
-                        const isMaria = /mariadb/i.test(v) || /mariadb/i.test(c);
-                        return { version: v, comment: c, isMaria };
-                } catch {
-                        return { version: '', comment: '', isMaria: false };
-                }
-        }
-
         async #columnExists(table, column) {
                 const [rows] = await this.db.query(
                         `SELECT COUNT(*) AS n
@@ -792,8 +780,6 @@ class PolicyService {
                         INDEX ix_zone_user (zone_id, user_id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
 
-                const { isMaria } = await this.#getServerInfo();
-
                 const addColumnIfMissing = async (table, column, ddl) => {
                         const exists = await this.#columnExists(table, column);
                         if (!exists) {
@@ -818,11 +804,7 @@ class PolicyService {
                 );
                 await addColumnIfMissing('zones', 'profile_title', 'profile_title VARCHAR(100) NULL');
                 await addColumnIfMissing('zones', 'profile_desc', 'profile_desc TEXT NULL');
-                if (isMaria) {
-                        await addColumnIfMissing('zones', 'profile_tags', 'profile_tags LONGTEXT NULL');
-                } else {
-                        await addColumnIfMissing('zones', 'profile_tags', 'profile_tags JSON NULL');
-                }
+                await addColumnIfMissing('zones', 'profile_tags', 'profile_tags JSON NULL');
                 await addColumnIfMissing('zones', 'profile_color', 'profile_color VARCHAR(7) NULL');
                 await addColumnIfMissing(
                         'zones',
