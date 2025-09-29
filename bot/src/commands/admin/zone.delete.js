@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 
 async function safeFetchChannel(client, id) { if (!id) return null; try { return await client.channels.fetch(id); } catch { return null; } }
 async function safeDeleteChannel(ch) { if (ch) { try { await ch.delete('Zone delete'); } catch {} } }
@@ -14,11 +14,13 @@ async function columnExists(pool, table, column) {
 }
 
 module.exports = {
-	ownerOnly: true,
-	data: new SlashCommandBuilder()
-		.setName('zone-delete')
-		.setDescription('Supprimer une zone par ID (admin only)')
-		.addIntegerOption(o => o.setName('id').setDescription('ID de la zone').setRequired(true)),
+        ownerOnly: true,
+        data: new SlashCommandBuilder()
+                .setName('zone-delete')
+                .setDescription('Supprimer une zone par ID (admin only)')
+                .setDMPermission(false)
+                .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+                .addIntegerOption(o => o.setName('id').setDescription('ID de la zone').setRequired(true)),
 
 	async execute(interaction, ctx) {
 		// utilise les flags pour éviter le warning "ephemeral deprecated"

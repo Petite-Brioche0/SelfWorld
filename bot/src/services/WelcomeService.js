@@ -166,7 +166,21 @@ class WelcomeService {
                         for (const zone of zones) {
                                 const activity = await this.#fetchActivitySummary(zone.id);
                                 const memberCount = await this.#fetchZoneMemberCount(zone.id);
-                                embeds.push(this.#buildZoneEmbed(zone, activity, memberCount));
+                                const embed = this.#buildZoneEmbed(zone, activity, memberCount);
+
+                                const activityService = this.services?.activity;
+                                if (activityService?.getZoneActivityScore && activityService?.buildProgressBar) {
+                                        try {
+                                                const score = await activityService.getZoneActivityScore(zone.id, 14);
+                                                const bar = activityService.buildProgressBar(score);
+                                                const pct = (score * 100) | 0;
+                                                embed.addFields({ name: 'Activité', value: `${bar}  ${pct}%`, inline: false });
+                                        } catch (err) {
+                                                this.logger?.warn({ err, zoneId: zone.id }, 'Failed to compute activity score for browse card');
+                                        }
+                                }
+
+                                embeds.push(embed);
                                 components.push(this.#buildZoneActionRow(zone));
                         }
                 }
@@ -198,10 +212,6 @@ class WelcomeService {
 
                 if (zone.policy === 'ask') {
                         embed.setFooter({ text: 'Admission sur demande' });
-                }
-
-                if (zone.profile_dynamic) {
-                        embed.addFields({ name: 'Profil', value: 'Dynamique', inline: true });
                 }
 
                 return embed;
@@ -259,6 +269,17 @@ class WelcomeService {
                         const activity = await this.#fetchActivitySummary(zone.id);
                         const memberCount = await this.#fetchZoneMemberCount(zone.id);
                         const embed = this.#buildZoneDetailsEmbed(zone, activity, memberCount);
+                        const activityService = this.services?.activity;
+                        if (activityService?.getZoneActivityScore && activityService?.buildProgressBar) {
+                                try {
+                                        const score = await activityService.getZoneActivityScore(zone.id, 14);
+                                        const bar = activityService.buildProgressBar(score);
+                                        const pct = (score * 100) | 0;
+                                        embed.addFields({ name: 'Activité', value: `${bar}  ${pct}%`, inline: false });
+                                } catch (err) {
+                                        this.logger?.warn({ err, zoneId }, 'Failed to compute activity score for zone info');
+                                }
+                        }
                         return this.#sendReply(interaction, { embeds: [embed] });
                 } catch (err) {
                         this.logger?.warn({ err, zoneId }, 'Failed to fetch zone info');

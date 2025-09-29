@@ -30,10 +30,16 @@ class PolicyService {
 
         setPanelService(panelService) {
                 this.panelService = panelService;
+                if (this.panelService?.setServices && this.services) {
+                        this.panelService.setServices(this.services);
+                }
         }
 
         setServices(services) {
                 this.services = services;
+                if (this.panelService?.setServices) {
+                        this.panelService.setServices(services);
+                }
         }
 
         async handleApprovalButton(interaction) {
@@ -248,8 +254,7 @@ class PolicyService {
                         profile_title: interaction.fields.getTextInputValue('policyProfileTitle')?.trim(),
                         profile_desc: interaction.fields.getTextInputValue('policyProfileDesc')?.trim(),
                         profile_color: interaction.fields.getTextInputValue('policyProfileColor')?.trim(),
-                        profile_tags: interaction.fields.getTextInputValue('policyProfileTags')?.trim(),
-                        profile_dynamic: interaction.fields.getTextInputValue('policyProfileDynamic')?.trim()
+                        profile_tags: interaction.fields.getTextInputValue('policyProfileTags')?.trim()
                 };
 
                 try {
@@ -438,7 +443,6 @@ class PolicyService {
                                         updates.profile_color = '#5865F2';
                                 }
                         }
-                        if (zone.profile_dynamic == null) updates.profile_dynamic = 0;
                 }
 
                 if (policy === 'ask') {
@@ -498,9 +502,6 @@ class PolicyService {
 
                 const tags = this.#sanitizeTags(data.profile_tags);
                 updates.profile_tags = tags.length ? JSON.stringify(tags) : null;
-
-                const dynamic = this.#sanitizeBoolean(data.profile_dynamic);
-                updates.profile_dynamic = dynamic ? 1 : 0;
 
                 const columns = [];
                 const values = [];
@@ -817,9 +818,6 @@ class PolicyService {
                                 }
                         }
                 }
-                if (zone.profile_dynamic != null) {
-                        zone.profile_dynamic = Number(zone.profile_dynamic) ? 1 : 0;
-                }
                 return zone;
         }
 
@@ -881,20 +879,11 @@ class PolicyService {
                         .setMaxLength(200)
                         .setValue(tags);
 
-                const dynamicInput = new TextInputBuilder()
-                        .setCustomId('policyProfileDynamic')
-                        .setLabel('Profil dynamique ? (oui/non)')
-                        .setStyle(TextInputStyle.Short)
-                        .setRequired(false)
-                        .setMaxLength(10)
-                        .setValue(zone.profile_dynamic ? 'oui' : 'non');
-
                 modal.addComponents(
                         new ActionRowBuilder().addComponents(titleInput),
                         new ActionRowBuilder().addComponents(descInput),
                         new ActionRowBuilder().addComponents(colorInput),
-                        new ActionRowBuilder().addComponents(tagsInput),
-                        new ActionRowBuilder().addComponents(dynamicInput)
+                        new ActionRowBuilder().addComponents(tagsInput)
                 );
 
                 return modal;
@@ -923,13 +912,6 @@ class PolicyService {
                         .map((entry) => String(entry || '').trim().toLowerCase())
                         .filter((entry) => entry.length)
                         .slice(0, 8);
-        }
-
-        #sanitizeBoolean(value) {
-                if (typeof value === 'boolean') return value;
-                if (value == null) return false;
-                const normalized = String(value).trim().toLowerCase();
-                return ['oui', 'yes', 'true', 'on', '1'].includes(normalized);
         }
 
         async #resolveOwnerColor(zone) {

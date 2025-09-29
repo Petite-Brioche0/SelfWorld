@@ -1,5 +1,5 @@
 
-const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 
 function chunk(arr, size) {
 	const out = [];
@@ -8,10 +8,12 @@ function chunk(arr, size) {
 }
 
 module.exports = {
-	ownerOnly: true,
-	data: new SlashCommandBuilder()
-		.setName('zones-list')
-		.setDescription('Liste toutes les zones (admin only)'),
+        ownerOnly: true,
+        data: new SlashCommandBuilder()
+                .setName('zones-list')
+                .setDescription('Liste toutes les zones (admin only)')
+                .setDMPermission(false)
+                .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
 	async execute(interaction, ctx) {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
