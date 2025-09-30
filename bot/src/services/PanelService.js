@@ -35,10 +35,10 @@ class PanelService {
 		}
 	}
 
-	async ensurePanel(zoneRow) {
-		await this.#ensureSchema();
-		const channel = await this.#fetchChannel(zoneRow.text_panel_id);
-		if (!channel) throw new Error('panel channel missing');
+        async ensurePanel(zoneRow) {
+                await this.#ensureSchema();
+                const channel = await this.#fetchChannel(zoneRow.text_panel_id);
+                if (!channel) throw new Error('panel channel missing');
 
 		// ensure record
 		let [rows] = await this.db.query('SELECT * FROM panel_messages WHERE zone_id=?', [zoneRow.id]);
@@ -76,14 +76,20 @@ class PanelService {
 				record = { ...record, [meta.column]: msgId };
 			}
 			messages[key] = { message, id: msgId };
-		}
+                }
 
-		return { channel, record, messages };
-	}
+                try {
+                        await this.ensureReceptionWelcome(zoneRow);
+                } catch (err) {
+                        this.logger?.warn({ err, zoneId: zoneRow.id }, 'Failed to ensure reception welcome message');
+                }
 
-	async refresh(zoneId, sections = []) {
-		await this.#ensureSchema();
-		const zoneRow = await this.#getZone(zoneId);
+                return { channel, record, messages };
+        }
+
+        async refresh(zoneId, sections = []) {
+                await this.#ensureSchema();
+                const zoneRow = await this.#getZone(zoneId);
 		if (!zoneRow) throw new Error('zone not found');
 		const channel = await this.#fetchChannel(zoneRow.text_panel_id);
 		if (!channel) throw new Error('panel channel missing');
@@ -104,10 +110,10 @@ class PanelService {
 			policy: { column: 'policy_msg_id', render: () => this.renderPolicy(zoneRow) }
 		};
 
-		for (const key of sections) {
-			const meta = map[key];
-			if (!meta) continue;
-			const { embed, components } = await meta.render();
+                for (const key of sections) {
+                        const meta = map[key];
+                        if (!meta) continue;
+                        const { embed, components } = await meta.render();
 			let msgId = record[meta.column];
 			if (!msgId) {
 				const m = await channel.send({ embeds: [embed], components });
@@ -120,10 +126,68 @@ class PanelService {
 				await msg.edit({ embeds: [embed], components });
 			} catch {
 				const m = await channel.send({ embeds: [embed], components });
-				await this.db.query(`UPDATE panel_messages SET ${meta.column}=? WHERE zone_id=?`, [m.id, zoneRow.id]);
-			}
-		}
-	}
+                                await this.db.query(`UPDATE panel_messages SET ${meta.column}=? WHERE zone_id=?`, [m.id, zoneRow.id]);
+                        }
+                }
+
+                try {
+                        await this.ensureReceptionWelcome(zoneRow);
+                } catch (err) {
+                        this.logger?.warn({ err, zoneId: zoneRow.id }, 'Failed to refresh reception welcome message');
+                }
+        }
+
+        async ensureReceptionWelcome(zoneRow) {
+                if (!zoneRow?.id) return;
+                await this.#ensureSchema();
+
+                const recep = await this.#fetchChannel(zoneRow.text_reception_id);
+                if (!recep) return;
+
+                const anchorText = 'Utilise les boutons pour rejoindre une zone ou coller un code.';
+                let resolvedColor = 0x5865f2;
+                try {
+                        resolvedColor = await this.#resolveZoneColor(zoneRow);
+                } catch {}
+                const embed = new EmbedBuilder()
+                        .setTitle('Accueil zone')
+                        .setDescription('• Voir les zones ouvertes\n• Rejoindre via code\n• Demander une zone')
+                        .setColor(resolvedColor || 0x5865f2);
+
+                const row = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                                .setCustomId('welcome:browse')
+                                .setLabel('Découvrir les zones')
+                                .setStyle(ButtonStyle.Primary),
+                        new ButtonBuilder()
+                                .setCustomId('welcome:joincode')
+                                .setLabel('Rejoindre via un code')
+                                .setStyle(ButtonStyle.Secondary),
+                        new ButtonBuilder()
+                                .setCustomId('welcome:request')
+                                .setLabel('Demander une zone')
+                                .setStyle(ButtonStyle.Secondary)
+                );
+
+                const existingId = await this.#getPanelMessageId(zoneRow.id, 'reception_welcome');
+                let msg = null;
+                if (existingId) {
+                        msg = await recep.messages.fetch(existingId).catch(() => null);
+                        if (msg) {
+                                await msg.edit({ content: anchorText, embeds: [embed], components: [row] }).catch(() => {});
+                                await msg.pin().catch(() => {});
+                        }
+                }
+
+                if (!msg) {
+                        msg = await recep.send({ content: anchorText, embeds: [embed], components: [row] });
+                        await msg.pin().catch(() => {});
+                }
+
+                if (msg) {
+                        await this.#setPanelMessageId(zoneRow.id, 'reception_welcome', msg.id);
+                }
+        }
 
 	// ===== Renderers
 
@@ -751,6 +815,15 @@ class PanelService {
                        components.push(new ActionRowBuilder().addComponents(approverSelect));
                }
 
+               components.push(
+                       new ActionRowBuilder().addComponents(
+                               new ButtonBuilder()
+                                       .setCustomId(`panel:refresh:${zoneRow.id}`)
+                                       .setLabel('🔄 Rafraîchir le panneau')
+                                       .setStyle(ButtonStyle.Secondary)
+                       )
+               );
+
                return { embed, components };
        }
 
@@ -1282,6 +1355,17 @@ class PanelService {
 			return true;
 		}
 
+                if (parts[1] === 'refresh') {
+                        try {
+                                await this.refresh(zoneRow.id, ['members', 'roles', 'channels', 'policy']);
+                                await interaction.reply({ content: 'Panneau actualisé.', ephemeral: true }).catch(() => {});
+                        } catch (err) {
+                                this.logger?.warn({ err, zoneId: zoneRow.id }, 'Failed to refresh panel via button');
+                                await interaction.reply({ content: 'Impossible de rafraîchir le panneau.', ephemeral: true }).catch(() => {});
+                        }
+                        return true;
+                }
+
                 if (parts[1] === 'member') {
                         const memberId = parts[4];
                         if (parts[2] === 'kick') {
@@ -1756,6 +1840,12 @@ class PanelService {
                         policy_msg_id VARCHAR(32) NULL,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+                await this.db.query(`CREATE TABLE IF NOT EXISTS panel_message_registry (
+                        zone_id INT NOT NULL,
+                        kind VARCHAR(32) NOT NULL,
+                        message_id VARCHAR(32) NOT NULL,
+                        PRIMARY KEY(zone_id, kind)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
                 await this.db.query(`CREATE TABLE IF NOT EXISTS zone_roles (
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         zone_id INT NOT NULL,
@@ -1772,6 +1862,29 @@ class PanelService {
                         PRIMARY KEY(zone_id, role_id, user_id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
                 this.#schemaReady = true;
+        }
+
+        async #getPanelMessageId(zoneId, kind) {
+                if (!zoneId || !kind) return null;
+                const [rows] = await this.db.query(
+                        'SELECT message_id FROM panel_message_registry WHERE zone_id = ? AND kind = ? LIMIT 1',
+                        [zoneId, kind]
+                );
+                return rows?.[0]?.message_id || null;
+        }
+
+        async #setPanelMessageId(zoneId, kind, messageId) {
+                if (!zoneId || !kind) return;
+                if (!messageId) {
+                        await this.db
+                                .query('DELETE FROM panel_message_registry WHERE zone_id = ? AND kind = ?', [zoneId, kind])
+                                .catch(() => {});
+                        return;
+                }
+                await this.db.query(
+                        'INSERT INTO panel_message_registry (zone_id, kind, message_id) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE message_id = VALUES(message_id)',
+                        [zoneId, kind, messageId]
+                );
         }
 }
 

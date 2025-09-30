@@ -413,17 +413,8 @@ class PolicyService {
                 try {
                         const { code } = await this.createInviteCode(zone.id, interaction.user.id);
 
-                        const baseContent = interaction.message?.content || '';
-                        const note = `Dernier code généré par <@${interaction.user.id}> : \`${code}\``;
-                        const nextContent = baseContent.includes('Dernier code généré')
-                                ? baseContent.replace(/Dernier code généré[^\n]*/i, note)
-                                : `${baseContent ? `${baseContent}\n` : ''}${note}`;
-                        await interaction.message?.edit({ content: nextContent, components: interaction.message.components }).catch(
-                                () => {}
-                        );
-
                         await interaction.reply({
-                                content: `Code généré : \`${code}\``,
+                                content: `Code généré : \`${code}\` — valide 24h, usage unique.`,
                                 flags: MessageFlags.Ephemeral
                         });
                 } catch (err) {
@@ -484,7 +475,7 @@ class PolicyService {
                         } else {
                                 await this.#cleanupInterviewRoom(updatedZone);
                         }
-                        await this.#syncInviteAnchors(updatedZone);
+                        await this.#cleanupCodeAnchor(updatedZone);
                 } else {
                         await this.#cleanupInterviewRoom(updatedZone);
                         await this.#cleanupCodeAnchor(updatedZone);
@@ -537,7 +528,7 @@ class PolicyService {
                 this.logger?.info({ zoneId, actorId, mode }, 'Ask mode updated');
 
                 const updatedZone = await this.#getZone(zoneId);
-                await this.#syncInviteAnchors(updatedZone);
+                await this.#cleanupCodeAnchor(updatedZone);
         }
 
         async setApproverMode(zoneId, mode, actorId = null) {
@@ -558,7 +549,7 @@ class PolicyService {
                         await this.#cleanupInterviewRoom(updatedZone);
                 }
 
-                await this.#syncInviteAnchors(updatedZone);
+                await this.#cleanupCodeAnchor(updatedZone);
         }
 
         async getZone(zoneId) {
@@ -682,14 +673,8 @@ class PolicyService {
                         code = this.#generateCode();
                         try {
                                 await this.db.query(
-                                        'INSERT INTO zone_invite_codes (zone_id, code, created_by, expires_at, max_uses) VALUES (?, ?, ?, ?, ?)',
-                                        [
-                                                zoneId,
-                                                code,
-                                                actorId,
-                                                options.expiresAt || null,
-                                                options.maxUses != null ? Number(options.maxUses) : null
-                                        ]
+                                        'INSERT INTO zone_invite_codes (zone_id, code, created_by, expires_at, max_uses, uses) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR), 1, 0)',
+                                        [zoneId, code, actorId]
                                 );
                                 break;
                         } catch (err) {
@@ -735,6 +720,8 @@ class PolicyService {
                 }
 
                 await this.db.query('UPDATE zone_invite_codes SET uses = uses + 1 WHERE id = ?', [entry.id]);
+
+                await this.db.query('DELETE FROM zone_invite_codes WHERE id = ?', [entry.id]).catch(() => {});
 
                 await this.#grantZoneMembership(zone, userId);
 
@@ -1122,11 +1109,7 @@ class PolicyService {
 
         async #syncInviteAnchors(zone) {
                 if (!zone?.id) return;
-                if (zone.policy !== 'ask' || !['invite', 'both'].includes(zone.ask_join_mode || 'invite')) {
-                        await this.#cleanupCodeAnchor(zone);
-                        return;
-                }
-                await this.#ensureCodeAnchor(zone);
+                await this.#cleanupCodeAnchor(zone);
         }
 
         async #ensureCodeAnchor(zone) {
@@ -1226,16 +1209,25 @@ class PolicyService {
                         .addFields({ name: 'Membre', value: `<@${request.user_id}> (${request.user_id})`, inline: false })
                         .setTimestamp(new Date());
 
-                if (applicantMember?.roles?.cache?.size) {
-                        embed.addFields({
-                                name: 'Rôles existants',
-                                value: applicantMember.roles.cache
-                                        .filter((role) => role.id !== applicantMember.guild.roles.everyone.id)
-                                        .map((role) => role.toString())
-                                        .slice(0, 5)
-                                        .join(' ') || 'Aucun',
-                                inline: false
-                        });
+                const joinedValue = applicantMember?.joinedAt
+                        ? `<t:${Math.floor(applicantMember.joinedAt.getTime() / 1000)}:D>`
+                        : '—';
+                const createdValue = applicantMember?.user?.createdAt
+                        ? `<t:${Math.floor(applicantMember.user.createdAt.getTime() / 1000)}:D>`
+                        : '—';
+
+                embed.addFields(
+                        { name: 'Sur le serveur depuis', value: joinedValue, inline: true },
+                        { name: 'Compte créé', value: createdValue, inline: true }
+                );
+
+                const avatar =
+                        applicantMember?.displayAvatarURL?.({ size: 128 }) ||
+                        applicantMember?.user?.displayAvatarURL?.({ size: 128 }) ||
+                        this.client?.users?.cache?.get(request.user_id)?.displayAvatarURL?.({ size: 128 }) ||
+                        null;
+                if (avatar) {
+                        embed.setThumbnail(avatar);
                 }
 
                 if (request.note) {
@@ -1251,30 +1243,46 @@ class PolicyService {
 
         async #grantZoneMembership(zone, userId) {
                 if (!zone?.id) return;
+                let added = false;
+
                 if (this.services?.zone?.addMember) {
-                                try {
-                                        await this.services.zone.addMember(zone.id, userId);
-                                        return;
-                                } catch (err) {
-                                        this.logger?.warn({ err, zoneId: zone.id, userId }, 'ZoneService addMember failed, falling back');
-                                }
+                        try {
+                                await this.services.zone.addMember(zone.id, userId);
+                                added = true;
+                        } catch (err) {
+                                this.logger?.warn({ err, zoneId: zone.id, userId }, 'ZoneService addMember failed, falling back');
+                        }
                 }
 
-                try {
-                        const guild = await this.client.guilds.fetch(zone.guild_id);
-                        const member = await guild.members.fetch(userId).catch(() => null);
-                        const roleMember = zone.role_member_id
-                                ? await guild.roles.fetch(zone.role_member_id).catch(() => null)
-                                : null;
-                        if (member && roleMember) {
-                                await member.roles.add(roleMember).catch(() => {});
+                if (!added) {
+                        try {
+                                const guild = await this.client.guilds.fetch(zone.guild_id);
+                                const member = await guild.members.fetch(userId).catch(() => null);
+                                const roleMember = zone.role_member_id
+                                        ? await guild.roles.fetch(zone.role_member_id).catch(() => null)
+                                        : null;
+                                if (member && roleMember) {
+                                        await member.roles.add(roleMember).catch(() => {});
+                                }
+                                await this.db.query(
+                                        'INSERT INTO zone_members (zone_id, user_id, role) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE role = VALUES(role)',
+                                        [zone.id, userId, 'member']
+                                );
+                                added = true;
+                        } catch (err) {
+                                this.logger?.warn({ err, zoneId: zone.id, userId }, 'Failed to grant membership fallback');
                         }
-                        await this.db.query(
-                                'INSERT INTO zone_members (zone_id, user_id, role) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE role = VALUES(role)',
-                                [zone.id, userId, 'member']
-                        );
-                } catch (err) {
-                        this.logger?.warn({ err, zoneId: zone.id, userId }, 'Failed to grant membership fallback');
+                }
+
+                if (added) {
+                        const welcomeService = this.client?.context?.services?.welcome;
+                        if (welcomeService?.closeOnboardingChannelForUser) {
+                                welcomeService
+                                        .closeOnboardingChannelForUser(zone.guild_id, userId)
+                                        .catch((err) => {
+                                                this.logger?.warn({ err, zoneId: zone.id, userId }, 'Failed to cleanup onboarding channel');
+                                        });
+                        }
                 }
         }
 

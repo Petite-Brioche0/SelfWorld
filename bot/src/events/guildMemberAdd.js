@@ -1,4 +1,5 @@
 const { ChannelType, PermissionFlagsBits } = require('discord.js');
+const { shortId } = require('../utils/ids');
 
 async function ensureOnboardingCategory(guild, logger = null) {
         const existing = guild.channels.cache.find(
@@ -17,14 +18,10 @@ async function ensureOnboardingCategory(guild, logger = null) {
         }
 }
 
-async function createFallbackChannel(member, logger = null, ownerId = null) {
+async function createFallbackChannel(member, logger = null) {
         const guild = member.guild;
         const category = await ensureOnboardingCategory(guild, logger);
-        const channelName = `welcome-${member.user.username}`
-                .toLowerCase()
-                .replace(/[^a-z0-9-]/g, '-')
-                .replace(/-{2,}/g, '-')
-                .slice(0, 90);
+        const channelName = `onboard-${shortId()}`;
 
         try {
                 const overwrites = [
@@ -32,16 +29,14 @@ async function createFallbackChannel(member, logger = null, ownerId = null) {
                         { id: member.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
                         { id: guild.members.me?.id || guild.client.user.id, allow: [PermissionFlagsBits.ViewChannel] }
                 ];
-                if (ownerId) {
-                        overwrites.push({ id: ownerId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] });
-                }
 
                 const channel = await guild.channels.create({
-                        name: channelName || `welcome-${member.id}`,
+                        name: channelName,
                         type: ChannelType.GuildText,
                         parent: category.id,
                         reason: 'Fallback onboarding channel',
-                        permissionOverwrites: overwrites
+                        permissionOverwrites: overwrites,
+                        topic: `onboarding:user:${member.id}`
                 });
                 return channel;
         } catch (err) {
@@ -66,8 +61,7 @@ module.exports = {
                         logger?.info({ err, guildId: member.guild.id, userId: member.id }, 'Direct message welcome failed');
                 }
 
-                const ownerId = client?.context?.config?.ownerUserId || process.env.OWNER_ID || process.env.OWNER_USER_ID || null;
-                const channel = await createFallbackChannel(member, logger, ownerId);
+                const channel = await createFallbackChannel(member, logger);
                 if (!channel) return;
 
                 try {

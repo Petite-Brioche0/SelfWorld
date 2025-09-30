@@ -5,7 +5,6 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { Client, Collection, GatewayIntentBits, Partials } = require('discord.js');
 const pino = require('pino');
-const { RateLimiterMemory } = require('rate-limiter-flexible');
 
 const db = require('./utils/db');
 const { loadCommands } = require('./utils/commandLoader');
@@ -17,6 +16,7 @@ const { ActivityService } = require('./services/ActivityService');
 const { TempGroupService } = require('./services/TempGroupService');
 const { PanelService } = require('./services/PanelService');
 const { WelcomeService } = require('./services/WelcomeService');
+const { ThrottleService } = require('./services/ThrottleService');
 
 const logger = pino({
 	level: process.env.LOG_LEVEL || 'info',
@@ -58,29 +58,29 @@ const client = new Client({
 
 		// Services
 		const pool = db.getPool();
-               const zoneService = new ZoneService(client, pool, process.env.OWNER_ID, logger);
-               const policyService = new PolicyService(client, pool, logger);
-               const services = {
-                       zone: zoneService,
-                       policy: policyService,
-                       activity: new ActivityService(client, pool),
-                       anon: new AnonService(client, pool, logger),
-                       event: new EventService(client, pool),
-                       tempGroup: new TempGroupService(client, pool)
-               };
-               services.panel = new PanelService(client, pool, logger);
-               zoneService.setPanelService(services.panel);
-               policyService.setPanelService(services.panel);
-               policyService.setServices(services);
-               services.welcome = new WelcomeService(client, pool, logger, services);
+                const zoneService = new ZoneService(client, pool, process.env.OWNER_ID, logger);
+                const policyService = new PolicyService(client, pool, logger);
+                const services = {
+                        zone: zoneService,
+                        policy: policyService,
+                        activity: new ActivityService(client, pool),
+                        anon: new AnonService(client, pool, logger),
+                        event: new EventService(client, pool),
+                        tempGroup: new TempGroupService(client, pool)
+                };
+                services.panel = new PanelService(client, pool, logger);
+                services.throttle = new ThrottleService({ points: 20, duration: 10 });
+                zoneService.setPanelService(services.panel);
+                policyService.setPanelService(services.panel);
+                policyService.setServices(services);
+                services.welcome = new WelcomeService(client, pool, logger, services);
 
 		client.context = {
 			logger,
 			pool,
-			services,
-			rateLimiter: new RateLimiterMemory({ points: 5, duration: 10 }),
-			config: { ownerUserId: process.env.OWNER_ID, modRoleId: process.env.MOD_ROLE_ID }
-		};
+                        services,
+                        config: { ownerUserId: process.env.OWNER_ID, modRoleId: process.env.MOD_ROLE_ID }
+                };
 
 		if (!process.env.DISCORD_TOKEN) {
 			logger.error('Missing DISCORD_TOKEN in environment');

@@ -4,20 +4,20 @@ const { InteractionType, MessageFlags } = require('discord.js');
 module.exports = {
 	name: 'interactionCreate',
 	once: false,
-	async execute(interaction, client) {
-		try {
-			const ownerId =
-				client?.context?.config?.ownerUserId ||
-				process.env.OWNER_ID ||
-				process.env.OWNER_USER_ID;
+        async execute(interaction, client) {
+                try {
+                        const ownerId =
+                                client?.context?.config?.ownerUserId ||
+                                process.env.OWNER_ID ||
+                                process.env.OWNER_USER_ID;
 
-			const commands = client.commands;
-			const context  = client.contextMenus;
-			const services = client.context.services;
+                        const commands = client.commands;
+                        const context = client.contextMenus;
+                        const services = client.context.services;
 
-			if (interaction.isChatInputCommand()) {
-				const cmd = commands.get(interaction.commandName);
-				if (!cmd) return;
+                        if (interaction.isChatInputCommand()) {
+                                const cmd = commands.get(interaction.commandName);
+                                if (!cmd) return;
                                 if (cmd.ownerOnly && interaction.user.id !== ownerId) {
                                         return interaction.reply({ content: 'Commande réservée à l’Owner.', flags: MessageFlags.Ephemeral });
                                 }
@@ -30,8 +30,50 @@ module.exports = {
                                 if (cmd.ownerOnly && interaction.user.id !== ownerId) {
                                         return interaction.reply({ content: 'Commande réservée à l’Owner.', flags: MessageFlags.Ephemeral });
                                 }
-				return cmd.execute(interaction, client.context);
-			}
+                                return cmd.execute(interaction, client.context);
+                        }
+
+                        const throttleService = services?.throttle || null;
+                        const isOwner = ownerId && interaction.user.id === String(ownerId);
+                        let weight = null;
+                        let customId = '';
+
+                        if (interaction.isModalSubmit()) {
+                                weight = 3;
+                                customId = interaction.customId || '';
+                        } else if (interaction.isButton()) {
+                                weight = 1;
+                                customId = interaction.customId || '';
+                        } else if (interaction.isStringSelectMenu()) {
+                                weight = 1;
+                                customId = interaction.customId || '';
+                        } else if ('customId' in interaction) {
+                                customId = interaction.customId || '';
+                        }
+
+                        if (customId.startsWith('zone:request:')) {
+                                weight = 5;
+                        }
+                        if (customId.startsWith('welcome:browse:next') || customId.startsWith('welcome:browse:prev')) {
+                                weight = 1;
+                        }
+
+                        if (weight != null && throttleService && !isOwner) {
+                                const result = await throttleService.consume(interaction.user.id, weight, 'interaction');
+                                if (!result.ok) {
+                                        const secs = Math.ceil(result.retryMs / 1000);
+                                        const payload = interaction.inGuild()
+                                                ? { content: `⏳ Calme :) Réessaie dans ${secs}s.`, flags: MessageFlags.Ephemeral }
+                                                : { content: `⏳ Calme :) Réessaie dans ${secs}s.` };
+                                        await interaction.reply(payload).catch(() => {});
+                                        return;
+                                }
+                        }
+
+                        const isReception = services.zone?.isReceptionChannel?.(interaction.channelId) === true;
+                        if (customId.startsWith('welcome:') && isReception) {
+                                interaction.forceWelcomeEphemeral = true;
+                        }
 
                         if (interaction.isStringSelectMenu()) {
                                 const id = interaction.customId || '';
