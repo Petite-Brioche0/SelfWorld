@@ -69,7 +69,7 @@ const client = new Client({
                         tempGroup: new TempGroupService(client, pool)
                 };
                 services.panel = new PanelService(client, pool, logger);
-                services.throttle = new ThrottleService({ points: 20, duration: 10 });
+                services.throttle = new ThrottleService();
                 zoneService.setPanelService(services.panel);
                 policyService.setPanelService(services.panel);
                 policyService.setServices(services);
