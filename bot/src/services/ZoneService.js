@@ -17,10 +17,19 @@ class ZoneService {
                 this.ownerId = ownerId;
                 this.logger = logger;
                 this.panelService = panelService;
+                this._receptionSet = new Set();
+                this.#warmReceptionCache().catch((err) => {
+                        this.logger?.warn({ err }, 'Failed to warm reception cache');
+                });
         }
 
         setPanelService(panelService) {
                 this.panelService = panelService;
+        }
+
+        isReceptionChannel(channelId) {
+                if (!channelId) return false;
+                return this._receptionSet.has(String(channelId));
         }
 
         #slugify(name) {
@@ -29,13 +38,21 @@ class ZoneService {
 
         async #getZone(zoneId) {
                 const [rows] = await this.db.query('SELECT * FROM zones WHERE id = ?', [zoneId]);
-                return rows?.[0] || null;
+                const zone = rows?.[0] || null;
+                if (zone?.text_reception_id) {
+                        this.#indexReception(zone.text_reception_id);
+                }
+                return zone;
         }
 
         async #getZoneByCategory(categoryId) {
                 if (!categoryId) return null;
                 const [rows] = await this.db.query('SELECT * FROM zones WHERE category_id = ?', [categoryId]);
-                return rows?.[0] || null;
+                const zone = rows?.[0] || null;
+                if (zone?.text_reception_id) {
+                        this.#indexReception(zone.text_reception_id);
+                }
+                return zone;
         }
 
         async #getRequestsChannelId(guildId) {
@@ -306,7 +323,26 @@ class ZoneService {
                                         .catch((err) => {
                                                 this.logger?.warn({ err, zoneId }, 'Failed to render full panel');
                                         });
+                                await this.panelService
+                                        .ensureReceptionWelcome({
+                                                id: zoneId,
+                                                guild_id: guild.id,
+                                                text_reception_id: reception.id,
+                                                text_panel_id: panel.id,
+                                                role_owner_id: roleOwner.id,
+                                                role_member_id: roleMember.id,
+                                                name,
+                                                policy,
+                                                ask_join_mode: null,
+                                                ask_approver_mode: null,
+                                                profile_color: null
+                                        })
+                                        .catch((err) => {
+                                                this.logger?.warn({ err, zoneId }, 'Failed to ensure reception welcome message');
+                                        });
                         }
+
+                        this.#indexReception(reception.id);
 
                         return { zoneId, slug };
                 } catch (err) {
@@ -394,6 +430,8 @@ class ZoneService {
                 await this.#deleteZoneRecords(zoneId);
 
                 this.logger?.info({ zoneId }, 'Zone deleted');
+
+                this.#removeReception(zone.text_reception_id);
 
                 return { success: true, zone };
         }
@@ -607,6 +645,29 @@ class ZoneService {
                         [zone.id, userId, code, expiresAt]
                 );
                 return { code, expiresAt };
+        }
+
+        async #warmReceptionCache() {
+                try {
+                        const [rows] = await this.db.query(
+                                'SELECT text_reception_id FROM zones WHERE text_reception_id IS NOT NULL'
+                        );
+                        for (const entry of rows || []) {
+                                this.#indexReception(entry.text_reception_id);
+                        }
+                } catch (err) {
+                        throw err;
+                }
+        }
+
+        #indexReception(channelId) {
+                if (!channelId) return;
+                this._receptionSet.add(String(channelId));
+        }
+
+        #removeReception(channelId) {
+                if (!channelId) return;
+                this._receptionSet.delete(String(channelId));
         }
 }
 

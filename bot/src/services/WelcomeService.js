@@ -42,16 +42,11 @@ class WelcomeService {
                         return this.#handleBrowse(interaction, 0, { update: false });
                 }
 
-                if (id.startsWith('welcome:page:')) {
+                if (id.startsWith('welcome:browse:prev:') || id.startsWith('welcome:browse:next:')) {
                         const parts = id.split(':');
                         const page = Number(parts.at(-1));
                         const targetPage = Number.isFinite(page) ? page : 0;
                         return this.#handleBrowse(interaction, targetPage, { update: true });
-                }
-
-                if (id.startsWith('welcome:zone:info:')) {
-                        const zoneId = Number(id.split(':').at(-1));
-                        return this.#handleZoneInfo(interaction, zoneId);
                 }
 
                 if (id.startsWith('welcome:zone:join:')) {
@@ -85,11 +80,22 @@ class WelcomeService {
         }
 
         #buildWizardPayload() {
-                const embed = new EmbedBuilder()
-                        .setTitle('👋 Bienvenue sur le serveur !')
+                const intro = new EmbedBuilder()
+                        .setTitle('Bienvenue !')
+                        .setColor(0x5865f2)
                         .setDescription(
-                                'Explore les zones disponibles, rejoins celles qui t’intéressent et découvre la communauté.'
-                        )
+                                [
+                                        '• Les zones sont des espaces isolés : seuls leurs membres voient les discussions.',
+                                        '• Pas de liste globale des membres, tu restes discret tant que tu n’entres pas.',
+                                        '• Pour rejoindre : découvre les zones ouvertes, demande l’accès ou saisis un code reçu.',
+                                        '• Pour créer ta zone, utilise « Demander une zone » et remplis la demande.',
+                                        '• Reste respectueux : pas de doxx, pas de harcèlement, respecte les règles du serveur.'
+                                ].join('\n')
+                        );
+
+                const assistant = new EmbedBuilder()
+                        .setTitle('Assistant de zones')
+                        .setDescription('Choisis une option ci-dessous pour commencer.')
                         .setColor(0x5865f2);
 
                 const row = new ActionRowBuilder().addComponents(
@@ -98,7 +104,7 @@ class WelcomeService {
                         new ButtonBuilder().setCustomId('welcome:request').setLabel('Demander une zone').setStyle(ButtonStyle.Secondary)
                 );
 
-                return { embeds: [embed], components: [row] };
+                return { embeds: [intro, assistant], components: [row] };
         }
 
         async #handleBrowse(interaction, page, { update }) {
@@ -110,16 +116,20 @@ class WelcomeService {
                         }
 
                         const response = { ...payload };
-                        if (interaction.inGuild()) {
-                                response.flags = MessageFlags.Ephemeral;
+                        const flags = this.#resolveEphemeralFlag(interaction);
+                        if (flags) {
+                                response.flags = flags;
                         }
                         return interaction.reply(response);
                 } catch (err) {
                         this.logger?.warn({ err, userId: interaction.user.id }, 'Failed to display zone browser');
                         const message = {
-                                content: 'Impossible de charger les zones actuellement.',
-                                flags: interaction.inGuild() ? MessageFlags.Ephemeral : undefined
+                                content: 'Impossible de charger les zones actuellement.'
                         };
+                        const fallbackFlags = this.#resolveEphemeralFlag(interaction);
+                        if (fallbackFlags) {
+                                message.flags = fallbackFlags;
+                        }
                         if (interaction.deferred || interaction.replied || update) {
                                 return interaction.followUp(message).catch(() => {});
                         }
@@ -204,7 +214,7 @@ class WelcomeService {
 
                 embed.addFields({
                         name: 'Activité (7 jours)',
-                        value: `💬 ${activity.msgs} msgs • 🔁 ${activity.reacts} réactions • 🔊 ${activity.voice} min voix`,
+                        value: `💬 ${activity.msgs} msgs • 🔊 ${activity.voice} min voix`,
                         inline: false
                 });
 
@@ -221,10 +231,6 @@ class WelcomeService {
                 const joinLabel = zone.policy === 'open' ? 'Rejoindre' : 'Demander à rejoindre';
                 return new ActionRowBuilder().addComponents(
                         new ButtonBuilder()
-                                .setCustomId(`welcome:zone:info:${zone.id}`)
-                                .setLabel('Plus d’infos')
-                                .setStyle(ButtonStyle.Secondary),
-                        new ButtonBuilder()
                                 .setCustomId(`welcome:zone:join:${zone.id}`)
                                 .setLabel(joinLabel)
                                 .setStyle(ButtonStyle.Success)
@@ -238,53 +244,21 @@ class WelcomeService {
 
                 return new ActionRowBuilder().addComponents(
                         new ButtonBuilder()
-                                .setCustomId(`welcome:page:prev:${prevTarget}`)
+                                .setCustomId(`welcome:browse:prev:${prevTarget}`)
                                 .setLabel('◀︎ Précédent')
                                 .setStyle(ButtonStyle.Secondary)
                                 .setDisabled(page === 0),
                         new ButtonBuilder()
-                                .setCustomId('welcome:page:status')
+                                .setCustomId('welcome:browse:status')
                                 .setLabel(`Page ${page + 1}/${totalPages}`)
                                 .setStyle(ButtonStyle.Secondary)
                                 .setDisabled(true),
                         new ButtonBuilder()
-                                .setCustomId(`welcome:page:next:${nextTarget}`)
+                                .setCustomId(`welcome:browse:next:${nextTarget}`)
                                 .setLabel('Suivant ▶︎')
                                 .setStyle(ButtonStyle.Secondary)
                                 .setDisabled(page >= totalPages - 1)
                 );
-        }
-
-        async #handleZoneInfo(interaction, zoneId) {
-                if (!zoneId) {
-                        return this.#sendReply(interaction, { content: 'Zone inconnue.' });
-                }
-
-                try {
-                        const zone = await this.services.policy.getZone(zoneId);
-                        if (!zone) {
-                                return this.#sendReply(interaction, { content: 'Zone introuvable.' });
-                        }
-
-                        const activity = await this.#fetchActivitySummary(zone.id);
-                        const memberCount = await this.#fetchZoneMemberCount(zone.id);
-                        const embed = this.#buildZoneDetailsEmbed(zone, activity, memberCount);
-                        const activityService = this.services?.activity;
-                        if (activityService?.getZoneActivityScore && activityService?.buildProgressBar) {
-                                try {
-                                        const score = await activityService.getZoneActivityScore(zone.id, 14);
-                                        const bar = activityService.buildProgressBar(score);
-                                        const pct = (score * 100) | 0;
-                                        embed.addFields({ name: 'Activité', value: `${bar}  ${pct}%`, inline: false });
-                                } catch (err) {
-                                        this.logger?.warn({ err, zoneId }, 'Failed to compute activity score for zone info');
-                                }
-                        }
-                        return this.#sendReply(interaction, { embeds: [embed] });
-                } catch (err) {
-                        this.logger?.warn({ err, zoneId }, 'Failed to fetch zone info');
-                        return this.#sendReply(interaction, { content: 'Impossible de récupérer les informations.' });
-                }
         }
 
         async #handleZoneJoin(interaction, zoneId) {
@@ -437,14 +411,14 @@ class WelcomeService {
         }
 
         async #handleZoneRequestModal(interaction) {
-                        const name = interaction.fields.getTextInputValue('welcomeRequestName')?.trim().slice(0, 64) || 'Sans nom';
-                        const pitch = interaction.fields.getTextInputValue('welcomeRequestPitch')?.trim().slice(0, 500) || '—';
-                        const tags = interaction.fields
-                                .getTextInputValue('welcomeRequestTags')
-                                ?.split(',')
-                                .map((entry) => entry.trim())
-                                .filter((entry) => entry.length)
-                                .slice(0, 8);
+                const name = interaction.fields.getTextInputValue('welcomeRequestName')?.trim().slice(0, 64) || 'Sans nom';
+                const pitch = interaction.fields.getTextInputValue('welcomeRequestPitch')?.trim().slice(0, 500) || '—';
+                const tags = interaction.fields
+                        .getTextInputValue('welcomeRequestTags')
+                        ?.split(',')
+                        .map((entry) => entry.trim())
+                        .filter((entry) => entry.length)
+                        .slice(0, 8);
 
                 const embed = new EmbedBuilder()
                         .setTitle('Nouvelle demande de zone')
@@ -517,8 +491,9 @@ class WelcomeService {
 
         async #sendReply(interaction, payload) {
                 const response = { ...payload };
-                if (interaction.inGuild()) {
-                        response.flags = MessageFlags.Ephemeral;
+                const flags = this.#resolveEphemeralFlag(interaction);
+                if (flags) {
+                        response.flags = flags;
                 }
 
                 if (interaction.deferred || interaction.replied) {
@@ -528,12 +503,35 @@ class WelcomeService {
                 return interaction.reply(response).catch(() => {});
         }
 
+        #resolveEphemeralFlag(interaction) {
+                if (interaction?.forceWelcomeEphemeral) return MessageFlags.Ephemeral;
+                if (interaction?.inGuild?.()) return MessageFlags.Ephemeral;
+                return null;
+        }
+
         async #notifyUser(userId, payload) {
                 if (!payload) return;
                 try {
                         const user = await this.client.users.fetch(userId);
                         await user.send(payload).catch(() => {});
                 } catch {}
+        }
+
+        async closeOnboardingChannelForUser(guildId, userId) {
+                try {
+                        const guild = await this.client.guilds.fetch(guildId);
+                        const chans = await guild.channels.fetch();
+                        for (const ch of chans.values()) {
+                                if (ch?.type === 0 && ch?.parent?.name?.toLowerCase() === 'onboarding') {
+                                        const topic = (ch.topic || '').toLowerCase();
+                                        if (topic.includes(`onboarding:user:${userId}`)) {
+                                                await ch.delete('User joined a zone — onboarding done').catch(() => {});
+                                        }
+                                }
+                        }
+                } catch (err) {
+                        this.logger?.warn({ err, guildId, userId }, 'Failed to cleanup onboarding channel');
+                }
         }
 
         #parseColor(color) {
