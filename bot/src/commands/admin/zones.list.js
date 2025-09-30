@@ -15,8 +15,10 @@ module.exports = {
                 .setDMPermission(false)
                 .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-	async execute(interaction, ctx) {
-                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        async execute(interaction, ctx) {
+                if (!interaction.deferred && !interaction.replied) {
+                        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                }
 
 		const ownerId = ctx.config?.ownerUserId || process.env.OWNER_ID || process.env.OWNER_USER_ID;
 		if (interaction.user.id !== ownerId) {

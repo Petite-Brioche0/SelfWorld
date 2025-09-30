@@ -22,9 +22,11 @@ module.exports = {
                 .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
                 .addIntegerOption(o => o.setName('id').setDescription('ID de la zone').setRequired(true)),
 
-	async execute(interaction, ctx) {
-		// utilise les flags pour éviter le warning "ephemeral deprecated"
-		await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        async execute(interaction, ctx) {
+                if (!interaction.deferred && !interaction.replied) {
+                        // utilise les flags pour éviter le warning "ephemeral deprecated"
+                        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                }
 
 		const ownerId = ctx.config?.ownerUserId || process.env.OWNER_ID || process.env.OWNER_USER_ID;
 		if (interaction.user.id !== ownerId) {
