@@ -12,6 +12,7 @@ const {
         TextInputStyle
 } = require('discord.js');
 const { applyZoneOverwrites } = require('../utils/permissions');
+const { validateZoneName, validateZoneDescription, sanitizeName } = require('../utils/validation');
 
 const POLICY_VALUES = new Set(['open', 'ask', 'closed']);
 const ASK_MODES = new Set(['request', 'invite', 'both']);
@@ -169,6 +170,293 @@ class PolicyService {
                                 content: `Impossible de traiter la demande : ${err.message || err}`,
                                 flags: MessageFlags.Ephemeral
                         }).catch(() => {});
+                }
+
+                return true;
+        }
+
+        async handleZoneRequestModal(interaction) {
+                await this.#ensureSchema();
+
+                if (!interaction.guildId) {
+                        await interaction
+                                .reply({ content: 'Serveur introuvable pour cette demande.', flags: MessageFlags.Ephemeral })
+                                .catch(() => {});
+                        return true;
+                }
+
+                if (!interaction.deferred && !interaction.replied) {
+                        await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
+                }
+
+                try {
+                        const payload = this.#extractCreationRequestPayload(interaction);
+                        const nameResult = validateZoneName(payload.name);
+                        const descResult = validateZoneDescription(payload.description);
+                        const errors = [...nameResult.errors, ...descResult.errors];
+
+                        const conflict = await this.#zoneNameExists(interaction.guildId, nameResult.value);
+                        if (conflict) {
+                                errors.push('Nom indisponible : une zone existe déjà avec ce nom.');
+                        }
+
+                        const extras = payload.extras || {};
+                        if (typeof extras.needs === 'string') {
+                                extras.needs = extras.needs.trim().slice(0, 1000);
+                        }
+                        if (Array.isArray(extras.tags)) {
+                                extras.tags = extras.tags.map((tag) => tag.trim()).filter(Boolean).slice(0, 8);
+                        }
+                        const [res] = await this.db.query(
+                                'INSERT INTO zone_creation_requests (guild_id, user_id, owner_user_id, name, description, extras, policy, validation_errors) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                                [
+                                        interaction.guildId,
+                                        interaction.user.id,
+                                        interaction.user.id,
+                                        nameResult.value,
+                                        descResult.value,
+                                        JSON.stringify(extras || {}),
+                                        'ask',
+                                        errors.length ? JSON.stringify(errors) : null
+                                ]
+                        );
+
+                        const requestId = res.insertId;
+                        const request = this.#hydrateCreationRequest({
+                                id: requestId,
+                                guild_id: interaction.guildId,
+                                user_id: interaction.user.id,
+                                owner_user_id: interaction.user.id,
+                                name: nameResult.value,
+                                description: descResult.value,
+                                extras: JSON.stringify(extras || {}),
+                                policy: 'ask',
+                                status: 'pending',
+                                validation_errors: errors.length ? JSON.stringify(errors) : null
+                        });
+
+                        const delivered = await this.#deliverCreationRequest(request);
+                        if (!delivered) {
+                                this.logger?.warn({ requestId }, 'Zone creation request could not be delivered');
+                        }
+
+                        const ack = errors.length
+                                ? '✅ Demande envoyée (quelques ajustements seront nécessaires avant validation).'
+                                : '✅ Merci ! Ta demande a bien été transmise aux modérateurs.';
+                        await interaction.editReply({ content: ack }).catch(() => {});
+                } catch (err) {
+                        this.logger?.warn({ err, userId: interaction.user.id }, 'Failed to register zone creation request');
+                        await interaction
+                                .editReply({ content: '❌ Impossible d’enregistrer ta demande pour le moment.' })
+                                .catch(() => {});
+                }
+
+                return true;
+        }
+
+        async handleCreationRequestButton(interaction) {
+                await this.#ensureSchema();
+
+                const parts = interaction.customId.split(':');
+                if (parts.length < 3) {
+                        await interaction.reply({ content: 'Action invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+
+                const action = parts[1];
+                const requestId = Number(parts[2]);
+                if (!requestId || !['accept', 'deny', 'editaccept'].includes(action)) {
+                        await interaction.reply({ content: 'Action invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+
+                const ownerId =
+                        this.client?.context?.config?.ownerUserId ||
+                        process.env.OWNER_ID ||
+                        process.env.OWNER_USER_ID;
+
+                if (!ownerId || String(interaction.user.id) !== String(ownerId)) {
+                        await interaction.reply({ content: 'Seul l’owner peut traiter cette demande.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+
+                const request = await this.#getCreationRequest(requestId);
+                if (!request) {
+                        await interaction.reply({ content: 'Demande introuvable ou déjà traitée.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+
+                if (action === 'editaccept') {
+                        const modal = new ModalBuilder().setCustomId(`req:editaccept:${request.id}`).setTitle('Modifier & Accepter');
+                        modal.addComponents(
+                                new ActionRowBuilder().addComponents(
+                                        new TextInputBuilder()
+                                                .setCustomId('requestName')
+                                                .setLabel('Nom de la zone')
+                                                .setStyle(TextInputStyle.Short)
+                                                .setRequired(true)
+                                                .setMaxLength(64)
+                                                .setValue(request.name.slice(0, 64))
+                                ),
+                                new ActionRowBuilder().addComponents(
+                                        new TextInputBuilder()
+                                                .setCustomId('requestDescription')
+                                                .setLabel('Description / objectif')
+                                                .setStyle(TextInputStyle.Paragraph)
+                                                .setRequired(true)
+                                                .setMaxLength(500)
+                                                .setValue((request.description || '').slice(0, 500))
+                                ),
+                                new ActionRowBuilder().addComponents(
+                                        new TextInputBuilder()
+                                                .setCustomId('requestPolicy')
+                                                .setLabel('Politique (fermé / sur demande / ouvert)')
+                                                .setStyle(TextInputStyle.Short)
+                                                .setRequired(true)
+                                                .setMaxLength(20)
+                                                .setValue(this.#policyLabel(request.policy || 'ask'))
+                                )
+                        );
+                        await interaction.showModal(modal);
+                        return true;
+                }
+
+                await interaction.deferUpdate().catch(() => {});
+
+                if (request.status !== 'pending') {
+                        await interaction
+                                .followUp({ content: 'Cette demande est déjà traitée.', flags: MessageFlags.Ephemeral })
+                                .catch(() => {});
+                        return true;
+                }
+
+                if (action === 'deny') {
+                        try {
+                                await this.db.query(
+                                        "UPDATE zone_creation_requests SET status = 'denied', decided_by = ?, decided_at = NOW() WHERE id = ? AND status = 'pending'",
+                                        [interaction.user.id, request.id]
+                                );
+                                const updated = { ...request, status: 'denied', validation_errors: [] };
+                                await this.#disableCreationRequestMessage(updated, 'Refusée');
+                                await this.#dmUser(request.user_id, {
+                                        content: `Ta demande de zone **${request.name}** a été refusée.`
+                                });
+                                await interaction
+                                        .followUp({ content: 'Demande refusée.', flags: MessageFlags.Ephemeral })
+                                        .catch(() => {});
+                        } catch (err) {
+                                this.logger?.warn({ err, requestId: request.id }, 'Failed to deny creation request');
+                                await interaction
+                                        .followUp({ content: 'Impossible de refuser la demande pour le moment.', flags: MessageFlags.Ephemeral })
+                                        .catch(() => {});
+                        }
+                        return true;
+                }
+
+                if (request.validation_errors?.length) {
+                        await interaction
+                                .followUp({
+                                        content: 'Impossible d’accepter : corrige les éléments signalés via « Modifier & Accepter ». ',
+                                        flags: MessageFlags.Ephemeral
+                                })
+                                .catch(() => {});
+                        return true;
+                }
+
+                try {
+                        await this.#createZoneFromRequest(request, {
+                                actorId: interaction.user.id,
+                                policy: request.policy
+                        });
+                        await interaction
+                                .followUp({ content: 'Zone créée et demande acceptée.', flags: MessageFlags.Ephemeral })
+                                .catch(() => {});
+                } catch (err) {
+                        this.logger?.warn({ err, requestId: request.id }, 'Failed to accept creation request');
+                        await interaction
+                                .followUp({
+                                        content: `Impossible de créer la zone : ${err?.message || err}`,
+                                        flags: MessageFlags.Ephemeral
+                                })
+                                .catch(() => {});
+                }
+
+                return true;
+        }
+
+        async handleCreationRequestModal(interaction) {
+                await this.#ensureSchema();
+
+                const parts = interaction.customId.split(':');
+                if (parts.length < 3) {
+                        await interaction.reply({ content: 'Action invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+
+                const requestId = Number(parts[2]);
+                if (!requestId) {
+                        await interaction.reply({ content: 'Demande invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+
+                const ownerId =
+                        this.client?.context?.config?.ownerUserId ||
+                        process.env.OWNER_ID ||
+                        process.env.OWNER_USER_ID;
+
+                if (!ownerId || String(interaction.user.id) !== String(ownerId)) {
+                        await interaction.reply({ content: 'Seul l’owner peut modifier la demande.', flags: MessageFlags.Ephemeral }).catch(() => {});
+                        return true;
+                }
+
+                if (!interaction.deferred && !interaction.replied) {
+                        await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
+                }
+
+                const request = await this.#getCreationRequest(requestId);
+                if (!request || request.status !== 'pending') {
+                        await interaction.editReply({ content: 'Demande introuvable ou déjà traitée.' }).catch(() => {});
+                        return true;
+                }
+
+                const nameInput = interaction.fields.getTextInputValue('requestName') || '';
+                const descInput = interaction.fields.getTextInputValue('requestDescription') || '';
+                const policyInput = interaction.fields.getTextInputValue('requestPolicy') || '';
+
+                const nameResult = validateZoneName(nameInput);
+                const descResult = validateZoneDescription(descInput);
+                const normalizedPolicy = this.#normalizePolicyInput(policyInput);
+
+                const issues = [...nameResult.errors, ...descResult.errors];
+                if (!normalizedPolicy) {
+                        issues.push('Politique invalide : choisis fermé, sur demande ou ouvert.');
+                }
+
+                if (nameResult.value !== request.name) {
+                        const conflict = await this.#zoneNameExists(request.guild_id, nameResult.value);
+                        if (conflict) {
+                                issues.push('Nom indisponible : une zone existe déjà avec ce nom.');
+                        }
+                }
+
+                if (issues.length) {
+                        await interaction.editReply({ content: `❌ ${issues.join('\n')}` }).catch(() => {});
+                        return true;
+                }
+
+                try {
+                        await this.#createZoneFromRequest(request, {
+                                actorId: interaction.user.id,
+                                name: nameResult.value,
+                                description: descResult.value,
+                                policy: normalizedPolicy
+                        });
+                        await interaction.editReply({ content: 'Zone créée et demande acceptée.' }).catch(() => {});
+                } catch (err) {
+                        this.logger?.warn({ err, requestId }, 'Failed to accept request via modal');
+                        await interaction
+                                .editReply({ content: `Impossible de créer la zone : ${err?.message || err}` })
+                                .catch(() => {});
                 }
 
                 return true;
@@ -767,6 +1055,28 @@ class PolicyService {
                         INDEX ix_zone_user (zone_id, user_id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
 
+                await this.db.query(`CREATE TABLE IF NOT EXISTS zone_creation_requests (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        guild_id VARCHAR(20) NOT NULL,
+                        user_id VARCHAR(20) NOT NULL,
+                        owner_user_id VARCHAR(20) NOT NULL,
+                        name VARCHAR(100) NOT NULL,
+                        description TEXT NULL,
+                        extras TEXT NULL,
+                        policy ENUM('open','ask','closed') NOT NULL DEFAULT 'ask',
+                        status ENUM('pending','accepted','denied') NOT NULL DEFAULT 'pending',
+                        validation_errors TEXT NULL,
+                        message_channel_id VARCHAR(32) NULL,
+                        message_id VARCHAR(32) NULL,
+                        zone_id INT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        decided_at DATETIME NULL,
+                        decided_by VARCHAR(20) NULL,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        INDEX ix_guild (guild_id),
+                        INDEX ix_status (status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+
                 const addColumnIfMissing = async (table, column, ddl) => {
                         const exists = await this.#columnExists(table, column);
                         if (!exists) {
@@ -830,6 +1140,17 @@ class PolicyService {
                         'code_anchor_message_id VARCHAR(32) NULL'
                 );
 
+                await addColumnIfMissing(
+                        'zone_creation_requests',
+                        'owner_user_id',
+                        "owner_user_id VARCHAR(20) NOT NULL DEFAULT ''"
+                );
+                await addColumnIfMissing('zone_creation_requests', 'extras', 'extras TEXT NULL');
+                await addColumnIfMissing('zone_creation_requests', 'validation_errors', 'validation_errors TEXT NULL');
+                await addColumnIfMissing('zone_creation_requests', 'message_channel_id', 'message_channel_id VARCHAR(32) NULL');
+                await addColumnIfMissing('zone_creation_requests', 'message_id', 'message_id VARCHAR(32) NULL');
+                await addColumnIfMissing('zone_creation_requests', 'zone_id', 'zone_id INT NULL');
+
                 this.#schemaReady = true;
         }
 
@@ -854,6 +1175,307 @@ class PolicyService {
                         }
                 }
                 return zone;
+        }
+
+        #slugify(value) {
+                return sanitizeName(value)
+                        .toLowerCase()
+                        .replace(/[^a-z0-9\-\s]/g, '')
+                        .replace(/\s+/g, '-')
+                        .slice(0, 32);
+        }
+
+        async #zoneNameExists(guildId, name) {
+                if (!guildId || !name) return false;
+                const slug = this.#slugify(name);
+                const [rows] = await this.db.query('SELECT id FROM zones WHERE guild_id = ? AND slug = ? LIMIT 1', [guildId, slug]);
+                return Boolean(rows?.length);
+        }
+
+        #hydrateCreationRequest(row) {
+                if (!row) return null;
+                const request = { ...row };
+                if (request.extras) {
+                        if (typeof request.extras === 'string') {
+                                try {
+                                        request.extras = JSON.parse(request.extras);
+                                } catch {
+                                        request.extras = {};
+                                }
+                        }
+                } else {
+                        request.extras = {};
+                }
+                if (request.validation_errors) {
+                        try {
+                                const parsed = JSON.parse(request.validation_errors);
+                                request.validation_errors = Array.isArray(parsed) ? parsed : [];
+                        } catch {
+                                request.validation_errors = [];
+                        }
+                } else {
+                        request.validation_errors = [];
+                }
+                return request;
+        }
+
+        #extractCreationRequestPayload(interaction) {
+                const customId = interaction.customId || '';
+                if (customId === 'zone:request:create') {
+                        return {
+                                name: interaction.fields.getTextInputValue('zoneName') || '',
+                                description: interaction.fields.getTextInputValue('zonePitch') || '',
+                                extras: {
+                                        needs: interaction.fields.getTextInputValue('zoneNeeds') || ''
+                                }
+                        };
+                }
+
+                if (customId === 'welcome:request:modal') {
+                        const rawTags = interaction.fields.getTextInputValue('welcomeRequestTags') || '';
+                        const tags = rawTags
+                                .split(',')
+                                .map((entry) => entry.trim())
+                                .filter((entry) => entry.length)
+                                .slice(0, 8);
+                        return {
+                                name: interaction.fields.getTextInputValue('welcomeRequestName') || '',
+                                description: interaction.fields.getTextInputValue('welcomeRequestPitch') || '',
+                                extras: { tags }
+                        };
+                }
+
+                return {
+                        name: interaction.fields.getTextInputValue('zoneName') || '',
+                        description: interaction.fields.getTextInputValue('zonePitch') || '',
+                        extras: {}
+                };
+        }
+
+        async #getCreationRequest(requestId) {
+                const [rows] = await this.db.query('SELECT * FROM zone_creation_requests WHERE id = ?', [requestId]);
+                if (!rows?.length) return null;
+                return this.#hydrateCreationRequest(rows[0]);
+        }
+
+        async #getRequestsChannelId(guildId) {
+                if (!guildId) return null;
+                const [rows] = await this.db.query('SELECT requests_channel_id FROM settings WHERE guild_id = ?', [guildId]);
+                const configured = rows?.[0]?.requests_channel_id;
+                return configured || process.env.ZONE_REQUESTS_CHANNEL_ID || null;
+        }
+
+        #normalizePolicyInput(input) {
+                const value = sanitizeName(input).toLowerCase();
+                if (!value) return null;
+                if (['ferme', 'fermé', 'closed', 'close'].includes(value)) return 'closed';
+                if (['sur demande', 'demande', 'ask', 'request'].includes(value)) return 'ask';
+                if (['ouvert', 'open'].includes(value)) return 'open';
+                return null;
+        }
+
+        #policyLabel(policy) {
+                switch (policy) {
+                        case 'open':
+                                return 'Ouvert';
+                        case 'closed':
+                                return 'Fermé';
+                        case 'ask':
+                        default:
+                                return 'Sur demande';
+                }
+        }
+
+        #formatValidationErrors(errors = []) {
+                if (!Array.isArray(errors) || !errors.length) return null;
+                return errors.map((err) => `• ${err}`).join('\n');
+        }
+
+        #buildCreationRequestComponents(requestId) {
+                return [
+                        new ActionRowBuilder().addComponents(
+                                new ButtonBuilder()
+                                        .setCustomId(`req:deny:${requestId}`)
+                                        .setLabel('Refuser')
+                                        .setStyle(ButtonStyle.Danger),
+                                new ButtonBuilder()
+                                        .setCustomId(`req:editaccept:${requestId}`)
+                                        .setLabel('Modifier & Accepter')
+                                        .setStyle(ButtonStyle.Secondary),
+                                new ButtonBuilder()
+                                        .setCustomId(`req:accept:${requestId}`)
+                                        .setLabel('Accepter')
+                                        .setStyle(ButtonStyle.Success)
+                        )
+                ];
+        }
+
+        #buildCreationRequestEmbed(request) {
+                const embed = new EmbedBuilder()
+                        .setTitle('Nouvelle demande de zone')
+                        .setColor(0x5865f2)
+                        .addFields(
+                                { name: 'Nom proposé', value: request.name || '—', inline: false },
+                                {
+                                        name: 'Demandeur',
+                                        value: `<@${request.user_id}> (${request.user_id})`,
+                                        inline: false
+                                },
+                                {
+                                        name: 'Politique souhaitée',
+                                        value: this.#policyLabel(request.policy || 'ask'),
+                                        inline: false
+                                }
+                        )
+                        .setTimestamp(new Date());
+
+                const description = request.description ? request.description.slice(0, 1000) : '—';
+                embed.addFields({ name: 'Description', value: description, inline: false });
+
+                const extras = request.extras || {};
+                if (extras.needs) {
+                        embed.addFields({ name: 'Besoins / notes', value: extras.needs.slice(0, 1000), inline: false });
+                }
+                if (extras.tags?.length) {
+                        embed.addFields({ name: 'Tags', value: extras.tags.join(', ').slice(0, 1000), inline: false });
+                }
+
+                const formattedErrors = this.#formatValidationErrors(request.validation_errors);
+                if (formattedErrors) {
+                        embed.addFields({ name: '⚠️ À corriger', value: formattedErrors, inline: false });
+                }
+
+                return embed;
+        }
+
+        async #deliverCreationRequest(request) {
+                const components = this.#buildCreationRequestComponents(request.id);
+                const embed = this.#buildCreationRequestEmbed(request);
+                const ownerId =
+                        this.client?.context?.config?.ownerUserId ||
+                        process.env.OWNER_ID ||
+                        process.env.OWNER_USER_ID;
+
+                let message = null;
+
+                if (ownerId) {
+                        try {
+                                const ownerUser = await this.client.users.fetch(ownerId);
+                                message = await ownerUser.send({ embeds: [embed], components }).catch(() => null);
+                        } catch (err) {
+                                this.logger?.warn({ err, ownerId }, 'Failed to DM owner for zone request');
+                        }
+                }
+
+                if (!message && request.guild_id) {
+                        const channelId = await this.#getRequestsChannelId(request.guild_id);
+                        if (channelId) {
+                                try {
+                                        const channel = await this.client.channels.fetch(channelId);
+                                        if (channel?.isTextBased?.()) {
+                                                const content = ownerId ? `<@${ownerId}>` : null;
+                                                message = await channel
+                                                        .send({ content: content || undefined, embeds: [embed], components })
+                                                        .catch(() => null);
+                                        }
+                                } catch (err) {
+                                        this.logger?.warn({ err, channelId }, 'Failed to forward creation request to channel');
+                                }
+                        }
+                }
+
+                if (message) {
+                        await this.db
+                                .query('UPDATE zone_creation_requests SET message_channel_id = ?, message_id = ? WHERE id = ?', [
+                                        message.channelId,
+                                        message.id,
+                                        request.id
+                                ])
+                                .catch(() => {});
+                        request.message_channel_id = message.channelId;
+                        request.message_id = message.id;
+                        return true;
+                }
+
+                return false;
+        }
+
+        async #disableCreationRequestMessage(request, statusLabel) {
+                if (!request?.message_channel_id || !request?.message_id) return;
+                try {
+                        const channel = await this.client.channels.fetch(request.message_channel_id).catch(() => null);
+                        if (!channel?.messages?.fetch) return;
+                        const message = await channel.messages.fetch(request.message_id).catch(() => null);
+                        if (!message) return;
+
+                        const components = [];
+                        for (const row of message.components) {
+                                const newRow = new ActionRowBuilder();
+                                for (const component of row.components) {
+                                        try {
+                                                const cloned = ButtonBuilder.from(component);
+                                                cloned.setDisabled(true);
+                                                newRow.addComponents(cloned);
+                                        } catch {}
+                                }
+                                if (newRow.components.length) {
+                                        components.push(newRow);
+                                }
+                        }
+
+                        const embed = this.#buildCreationRequestEmbed({
+                                ...request,
+                                validation_errors: request.validation_errors || []
+                        });
+                        if (statusLabel) {
+                                embed.setFooter({ text: statusLabel });
+                        }
+
+                        await message.edit({ embeds: [embed], components }).catch(() => {});
+                } catch (err) {
+                        this.logger?.warn({ err, requestId: request?.id }, 'Failed to update creation request message');
+                }
+        }
+
+        async #createZoneFromRequest(request, { actorId, name, description, policy }) {
+                const guild = await this.client.guilds.fetch(request.guild_id).catch(() => null);
+                if (!guild) throw new Error('Serveur introuvable');
+                const zoneService = this.services?.zone;
+                if (!zoneService?.createZone) throw new Error('Service de zone indisponible');
+
+                const finalName = sanitizeName(name || request.name).slice(0, 64);
+                const finalDescription = (description ?? request.description) || '';
+                const finalPolicy = POLICY_VALUES.has(policy) ? policy : request.policy || 'ask';
+
+                const result = await zoneService.createZone(guild, {
+                        name: finalName,
+                        ownerUserId: request.owner_user_id || request.user_id,
+                        policy: finalPolicy
+                });
+
+                await this.db.query(
+                        `UPDATE zone_creation_requests
+                         SET status = 'accepted', decided_by = ?, decided_at = NOW(), zone_id = ?, name = ?, description = ?, policy = ?, validation_errors = NULL
+                         WHERE id = ?`,
+                        [actorId, result.zoneId || null, finalName, finalDescription, finalPolicy, request.id]
+                );
+
+                const updated = {
+                        ...request,
+                        status: 'accepted',
+                        name: finalName,
+                        description: finalDescription,
+                        policy: finalPolicy,
+                        validation_errors: [],
+                        message_channel_id: request.message_channel_id,
+                        message_id: request.message_id
+                };
+                await this.#disableCreationRequestMessage(updated, 'Acceptée');
+                await this.#dmUser(request.user_id, {
+                        content: `🎉 Ta zone **${finalName}** a été créée !`
+                });
+
+                return result;
         }
 
         async #isZoneOwner(zone, userId) {
