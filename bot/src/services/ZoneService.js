@@ -390,22 +390,40 @@ class ZoneService {
                 });
         }
 
+        async #safeQuery(sql, params) {
+                try {
+                        await this.db.query(sql, params);
+                } catch (err) {
+                        if (err?.code === 'ER_NO_SUCH_TABLE') return;
+                        throw err;
+                }
+        }
+
         async #deleteZoneRecords(zoneId) {
                 const queries = [
+                        ['DELETE FROM panel_messages WHERE zone_id = ?', [zoneId]],
+                        ['DELETE FROM panel_message_registry WHERE zone_id = ?', [zoneId]],
                         ['DELETE FROM anon_channels WHERE zone_id = ?', [zoneId]],
+                        ['DELETE FROM anon_logs WHERE source_zone_id = ?', [zoneId]],
                         ['DELETE FROM zone_members WHERE zone_id = ?', [zoneId]],
                         ['DELETE FROM join_codes WHERE zone_id = ?', [zoneId]],
                         ['DELETE FROM join_requests WHERE zone_id = ?', [zoneId]],
                         ['DELETE FROM zone_activity WHERE zone_id = ?', [zoneId]],
-                        ['DELETE FROM event_participants WHERE zone_id = ?', [zoneId]],
-                        ['DELETE FROM anon_logs WHERE source_zone_id = ?', [zoneId]]
+                        ['DELETE FROM zone_roles WHERE zone_id = ?', [zoneId]],
+                        ['DELETE FROM zone_channels WHERE zone_id = ?', [zoneId]],
+                        ['DELETE FROM zone_invite_codes WHERE zone_id = ?', [zoneId]],
+                        ['DELETE FROM zone_join_requests WHERE zone_id = ?', [zoneId]],
+                        [
+                                'DELETE FROM temp_group_members WHERE group_id IN (SELECT id FROM temp_groups WHERE zone_id = ?)',
+                                [zoneId]
+                        ],
+                        ['DELETE FROM temp_groups WHERE zone_id = ?', [zoneId]],
+                        ['DELETE FROM zones WHERE id = ?', [zoneId]]
                 ];
 
                 for (const [sql, params] of queries) {
-                        await this.db.query(sql, params);
+                        await this.#safeQuery(sql, params);
                 }
-
-                await this.db.query('DELETE FROM zones WHERE id = ?', [zoneId]);
         }
 
         async deleteZone(guild, zoneId) {
@@ -417,12 +435,43 @@ class ZoneService {
 
                 const reason = `Zone #${zoneId} deletion requested by owner.`;
 
-                await this.#safeDeleteChannel(guild, zone.category_id, reason);
-                await this.#safeDeleteChannel(guild, zone.text_panel_id, reason);
-                await this.#safeDeleteChannel(guild, zone.text_reception_id, reason);
-                await this.#safeDeleteChannel(guild, zone.text_general_id, reason);
-                await this.#safeDeleteChannel(guild, zone.text_anon_id, reason);
-                await this.#safeDeleteChannel(guild, zone.voice_id, reason);
+                const fetchedChannels = await guild.channels.fetch().catch(() => null);
+                const categoryId = zone.category_id;
+                const processed = new Set();
+
+                if (fetchedChannels) {
+                        for (const channel of fetchedChannels.values()) {
+                                if (!channel) continue;
+                                if (channel.parentId && channel.parentId === categoryId) {
+                                        processed.add(channel.id);
+                                        await channel
+                                                .delete(reason)
+                                                .catch((err) => this.logger?.warn({ err, channelId: channel.id }, 'Failed to delete zone child channel'));
+                                }
+                        }
+                }
+
+                const additionalIds = [
+                        zone.text_panel_id,
+                        zone.text_reception_id,
+                        zone.text_general_id,
+                        zone.text_anon_id,
+                        zone.voice_id
+                ];
+
+                for (const channelId of additionalIds) {
+                        if (!channelId || processed.has(channelId)) continue;
+                        await this.#safeDeleteChannel(guild, channelId, reason);
+                }
+
+                if (categoryId && !processed.has(categoryId)) {
+                        const category = await guild.channels.fetch(categoryId).catch(() => null);
+                        if (category) {
+                                await category.delete(reason).catch((err) => {
+                                        this.logger?.warn({ err, categoryId }, 'Failed to delete zone category');
+                                });
+                        }
+                }
 
                 await this.#safeDeleteRole(guild, zone.role_owner_id, reason);
                 await this.#safeDeleteRole(guild, zone.role_member_id, reason);

@@ -1,141 +1,273 @@
+const { InteractionType, MessageFlags, DiscordAPIError } = require('discord.js');
 
-const { InteractionType, MessageFlags } = require('discord.js');
+const DEFAULT_THROTTLE_SECONDS = 4;
+
+function isUnknownInteractionError(error) {
+        if (!error) return false;
+        if (error instanceof DiscordAPIError && error.code === 10062) return true;
+        if (error?.code === 10062 || error?.rawError?.code === 10062) return true;
+        return false;
+}
+
+function resolveCooldown(interaction) {
+        if (!interaction) return null;
+
+        if (interaction.isModalSubmit()) {
+                const id = interaction.customId || '';
+                if (id.startsWith('zone:request:') || id === 'welcome:request:modal') {
+                        return { key: 'zone.request.create', seconds: 600 };
+                }
+                if (id.startsWith('req:editaccept:')) {
+                        return { key: 'zone.request.review', seconds: 8 };
+                }
+                if (id.startsWith('panel:role:create')) {
+                        return { key: 'zone.role.create', seconds: 60 };
+                }
+                if (id.startsWith('panel:ch:create')) {
+                        return { key: 'panel.channels.edit', seconds: 25 };
+                }
+                if (id.startsWith('panel:')) {
+                        return { key: 'panel.modal', seconds: 10 };
+                }
+                return { key: 'modal.generic', seconds: DEFAULT_THROTTLE_SECONDS };
+        }
+
+        if (interaction.isButton()) {
+                const id = interaction.customId || '';
+                if (id.startsWith('panel:refresh:')) {
+                        return { key: 'panel.refresh', seconds: 10 };
+                }
+                if (id.startsWith('panel:role:')) {
+                        return { key: 'panel.roles.edit', seconds: 25 };
+                }
+                if (id.startsWith('panel:ch:')) {
+                        return { key: 'panel.channels.edit', seconds: 25 };
+                }
+                if (id.startsWith('panel:member:')) {
+                        return { key: 'panel.members.manage', seconds: 15 };
+                }
+                if (id.startsWith('panel:policy:')) {
+                        return { key: 'panel.policy', seconds: 12 };
+                }
+                if (id.startsWith('req:')) {
+                        return { key: 'zone.request.review', seconds: 8 };
+                }
+                if (id.startsWith('zone:approve:') || id.startsWith('zone:reject:')) {
+                        return { key: 'zone.request.review', seconds: 8 };
+                }
+                if (id.startsWith('welcome:')) {
+                        return { key: 'welcome.flow', seconds: 5 };
+                }
+                return { key: 'button.generic', seconds: DEFAULT_THROTTLE_SECONDS };
+        }
+
+        if (interaction.isStringSelectMenu()) {
+                const id = interaction.customId || '';
+                if (id.startsWith('panel:policy:')) {
+                        return { key: 'panel.policy', seconds: 10 };
+                }
+                if (id.startsWith('panel:')) {
+                        return { key: 'panel.select', seconds: 6 };
+                }
+                if (id.startsWith('admin:zonecreate:')) {
+                        return { key: 'zone.create.policy', seconds: 20 };
+                }
+                return { key: 'select.generic', seconds: DEFAULT_THROTTLE_SECONDS };
+        }
+
+        return null;
+}
+
+async function safeReply(interaction, payload) {
+        if (!interaction) return;
+        try {
+                if (!interaction.deferred && !interaction.replied) {
+                        await interaction.reply(payload);
+                } else {
+                        await interaction.followUp(payload);
+                }
+        } catch (err) {
+                if (!isUnknownInteractionError(err)) throw err;
+        }
+}
+
+async function ensureDeferred(interaction, payload) {
+        if (!interaction) return;
+        if (interaction.deferred || interaction.replied) return;
+        try {
+                await interaction.deferReply(payload);
+        } catch (err) {
+                if (!isUnknownInteractionError(err)) throw err;
+        }
+}
 
 module.exports = {
-	name: 'interactionCreate',
-	once: false,
+        name: 'interactionCreate',
+        once: false,
         async execute(interaction, client) {
-                try {
-                        const ownerId =
-                                client?.context?.config?.ownerUserId ||
-                                process.env.OWNER_ID ||
-                                process.env.OWNER_USER_ID;
+                const ownerId =
+                        client?.context?.config?.ownerUserId ||
+                        process.env.OWNER_ID ||
+                        process.env.OWNER_USER_ID;
 
-                        const commands = client.commands;
-                        const context = client.contextMenus;
-                        const services = client.context.services;
+                const commands = client.commands;
+                const context = client.contextMenus;
+                const services = client.context.services;
+
+                const throttleService = services?.throttle || null;
+                const isOwner = ownerId && interaction.user.id === String(ownerId);
+                const cooldown = !isOwner ? resolveCooldown(interaction) : null;
+                let throttleKey = null;
+
+                try {
+                        if (cooldown && throttleService) {
+                                const result = await throttleService.begin(interaction.user.id, cooldown.key, cooldown.seconds);
+                                if (!result.ok) {
+                                        await safeReply(interaction, {
+                                                content: `⏳ Calme :) Réessaie dans ${result.retrySec}s.`,
+                                                flags: MessageFlags.Ephemeral
+                                        });
+                                        return;
+                                }
+                                throttleKey = cooldown.key;
+                        }
 
                         if (interaction.isChatInputCommand()) {
                                 const cmd = commands.get(interaction.commandName);
                                 if (!cmd) return;
                                 if (cmd.ownerOnly && interaction.user.id !== ownerId) {
-                                        return interaction.reply({ content: 'Commande réservée à l’Owner.', flags: MessageFlags.Ephemeral });
-                                }
-				return cmd.execute(interaction, client.context);
-			}
-
-			if (interaction.isContextMenuCommand()) {
-				const cmd = context.get(interaction.commandName);
-				if (!cmd) return;
-                                if (cmd.ownerOnly && interaction.user.id !== ownerId) {
-                                        return interaction.reply({ content: 'Commande réservée à l’Owner.', flags: MessageFlags.Ephemeral });
-                                }
-                                return cmd.execute(interaction, client.context);
-                        }
-
-                        const throttleService = services?.throttle || null;
-                        const isOwner = ownerId && interaction.user.id === String(ownerId);
-                        let weight = null;
-                        let customId = '';
-
-                        if (interaction.isModalSubmit()) {
-                                weight = 3;
-                                customId = interaction.customId || '';
-                        } else if (interaction.isButton()) {
-                                weight = 1;
-                                customId = interaction.customId || '';
-                        } else if (interaction.isStringSelectMenu()) {
-                                weight = 1;
-                                customId = interaction.customId || '';
-                        } else if ('customId' in interaction) {
-                                customId = interaction.customId || '';
-                        }
-
-                        if (customId.startsWith('zone:request:')) {
-                                weight = 5;
-                        }
-                        if (customId.startsWith('welcome:browse:next') || customId.startsWith('welcome:browse:prev')) {
-                                weight = 1;
-                        }
-
-                        if (weight != null && throttleService && !isOwner) {
-                                const result = await throttleService.consume(interaction.user.id, weight, 'interaction');
-                                if (!result.ok) {
-                                        const secs = Math.ceil(result.retryMs / 1000);
-                                        const payload = interaction.inGuild()
-                                                ? { content: `⏳ Calme :) Réessaie dans ${secs}s.`, flags: MessageFlags.Ephemeral }
-                                                : { content: `⏳ Calme :) Réessaie dans ${secs}s.` };
-                                        await interaction.reply(payload).catch(() => {});
+                                        await safeReply(interaction, {
+                                                content: 'Commande réservée à l’Owner.',
+                                                flags: MessageFlags.Ephemeral
+                                        });
                                         return;
                                 }
+                                await ensureDeferred(interaction, { flags: MessageFlags.Ephemeral });
+                                await cmd.execute(interaction, client.context);
+                                return;
                         }
 
+                        if (interaction.isContextMenuCommand()) {
+                                const cmd = context.get(interaction.commandName);
+                                if (!cmd) return;
+                                if (cmd.ownerOnly && interaction.user.id !== ownerId) {
+                                        await safeReply(interaction, {
+                                                content: 'Commande réservée à l’Owner.',
+                                                flags: MessageFlags.Ephemeral
+                                        });
+                                        return;
+                                }
+                                await ensureDeferred(interaction, { flags: MessageFlags.Ephemeral });
+                                await cmd.execute(interaction, client.context);
+                                return;
+                        }
+
+                        const customId = 'customId' in interaction ? interaction.customId || '' : '';
                         const isReception = services.zone?.isReceptionChannel?.(interaction.channelId) === true;
                         if (customId.startsWith('welcome:') && isReception) {
                                 interaction.forceWelcomeEphemeral = true;
                         }
 
                         if (interaction.isStringSelectMenu()) {
-                                const id = interaction.customId || '';
+                                const id = customId;
+                                if (id.startsWith('admin:zonecreate:')) {
+                                        const cmd = commands.get('zone-create');
+                                        if (cmd?.handlePolicySelect) {
+                                                await cmd.handlePolicySelect(interaction, client.context);
+                                                return;
+                                        }
+                                }
                                 if (id.startsWith('panel:policy:set:')) {
-                                        return services.policy.handlePolicySelect(interaction);
+                                        await services.policy.handlePolicySelect(interaction);
+                                        return;
                                 }
                                 if (id.startsWith('panel:policy:askmode:')) {
-                                        return services.policy.handleAskModeSelect(interaction);
+                                        await services.policy.handleAskModeSelect(interaction);
+                                        return;
                                 }
                                 if (id.startsWith('panel:policy:approver:')) {
-                                        return services.policy.handleApproverSelect(interaction);
+                                        await services.policy.handleApproverSelect(interaction);
+                                        return;
                                 }
                                 if (id.startsWith('panel:')) {
-                                        return services.panel.handleSelectMenu(interaction);
+                                        await services.panel.handleSelectMenu(interaction);
+                                        return;
                                 }
                         }
 
                         if (interaction.isButton()) {
-                                const id = interaction.customId || '';
+                                const id = customId;
                                 if (id.startsWith('welcome:')) {
-                                        return services.welcome.handleButton(interaction);
+                                        await services.welcome.handleButton(interaction);
+                                        return;
                                 }
                                 if (id.startsWith('panel:policy:profile:')) {
-                                        return services.policy.handleProfileButton(interaction);
+                                        await services.policy.handleProfileButton(interaction);
+                                        return;
                                 }
                                 if (id.startsWith('panel:policy:code:gen:')) {
-                                        return services.policy.handleGenerateCode(interaction);
+                                        await services.policy.handleGenerateCode(interaction);
+                                        return;
                                 }
                                 if (id.startsWith('zone:approve:') || id.startsWith('zone:reject:')) {
-                                        return services.policy.handleApprovalButton(interaction);
+                                        await services.policy.handleApprovalButton(interaction);
+                                        return;
+                                }
+                                if (id.startsWith('req:')) {
+                                        await services.policy.handleCreationRequestButton(interaction);
+                                        return;
                                 }
                                 if (id.startsWith('temp:extend:') || id.startsWith('temp:delete:')) {
-                                        return services.tempGroup.handleArchiveButtons(interaction);
+                                        await services.tempGroup.handleArchiveButtons(interaction);
+                                        return;
                                 }
                                 if (id.startsWith('event:join:')) {
-                                        return services.event.handleJoinButton(interaction);
+                                        await services.event.handleJoinButton(interaction);
+                                        return;
                                 }
                                 if (id.startsWith('panel:')) {
-                                        return services.panel.handleButton(interaction);
+                                        await services.panel.handleButton(interaction);
+                                        return;
                                 }
                         }
 
                         if (interaction.type === InteractionType.ModalSubmit) {
-                                const id = interaction.customId || '';
-                                if (id.startsWith('zone:request:')) {
-                                        return services.zone.handleZoneRequestModal(interaction);
+                                const id = customId;
+                                if (id.startsWith('req:editaccept:')) {
+                                        await services.policy.handleCreationRequestModal(interaction);
+                                        return;
+                                }
+                                if (id.startsWith('zone:request:') || id === 'welcome:request:modal') {
+                                        await services.policy.handleZoneRequestModal(interaction);
+                                        return;
                                 }
                                 if (id.startsWith('panel:policy:profile:modal:')) {
-                                        return services.policy.handleProfileModal(interaction);
+                                        await services.policy.handleProfileModal(interaction);
+                                        return;
                                 }
                                 if (id.startsWith('welcome:')) {
-                                        return services.welcome.handleModal(interaction);
+                                        await services.welcome.handleModal(interaction);
+                                        return;
                                 }
                                 if (id.startsWith('panel:')) {
-                                        return services.panel.handleModal(interaction);
+                                        await services.panel.handleModal(interaction);
+                                        return;
                                 }
                         }
-		} catch (err) {
-			console.error('[interactionCreate] error:', err);
-                        if (interaction && !interaction.replied) {
-                                try { await interaction.reply({ content: 'Erreur lors du traitement.', flags: MessageFlags.Ephemeral }); } catch {}
+                } catch (err) {
+                        if (isUnknownInteractionError(err)) {
+                                client?.context?.logger?.warn({ err }, 'Unknown interaction encountered');
+                                return;
                         }
-		}
-	}
+                        client?.context?.logger?.error({ err }, 'interactionCreate handler error');
+                        await safeReply(interaction, {
+                                content: 'Erreur lors du traitement.',
+                                flags: MessageFlags.Ephemeral
+                        });
+                } finally {
+                        if (throttleKey && throttleService) {
+                                await throttleService.end(interaction.user.id, throttleKey);
+                        }
+                }
+        }
 };
