@@ -213,7 +213,7 @@ class WelcomeService {
                 }
 
                 embed.addFields({
-                        name: 'Activité (7 jours)',
+                        name: 'Activité (14 jours)',
                         value: `💬 ${activity.msgs} msgs • 🔊 ${activity.voice} min voix`,
                         inline: false
                 });
@@ -464,7 +464,7 @@ class WelcomeService {
                         const [rows] = await this.db.query(
                                 `SELECT COALESCE(SUM(msgs),0) AS msgs, COALESCE(SUM(reacts),0) AS reacts, COALESCE(SUM(voice_minutes),0) AS voice
                                 FROM zone_activity
-                                WHERE zone_id = ? AND day >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)`,
+                                WHERE zone_id = ? AND day >= DATE_SUB(CURRENT_DATE(), INTERVAL 14 DAY)`,
                                 [zoneId]
                         );
                         const row = rows?.[0] || {};

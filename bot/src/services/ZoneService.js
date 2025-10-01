@@ -115,6 +115,15 @@ class ZoneService {
                         .setStyle(TextInputStyle.Short)
                         .setRequired(true);
 
+                const policyInput = new TextInputBuilder()
+                        .setCustomId('zonePolicy')
+                        .setLabel('Politique souhaitée (ouvert / sur demande / fermé)')
+                        .setMinLength(3)
+                        .setMaxLength(20)
+                        .setPlaceholder('Ex. open, ask, closed')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(true);
+
                 const pitchInput = new TextInputBuilder()
                         .setCustomId('zonePitch')
                         .setLabel('But de la zone')
@@ -131,6 +140,7 @@ class ZoneService {
 
                 modal.addComponents(
                         new ActionRowBuilder().addComponents(nameInput),
+                        new ActionRowBuilder().addComponents(policyInput),
                         new ActionRowBuilder().addComponents(pitchInput),
                         new ActionRowBuilder().addComponents(needsInput)
                 );
@@ -140,8 +150,30 @@ class ZoneService {
 
         async handleZoneRequestModal(interaction) {
                 const name = interaction.fields.getTextInputValue('zoneName')?.trim().slice(0, 64) || 'Zone sans nom';
+                const rawPolicy = interaction.fields.getTextInputValue('zonePolicy')?.trim().toLowerCase() || 'ask';
                 const pitch = interaction.fields.getTextInputValue('zonePitch')?.trim().slice(0, 500) || '—';
                 const needs = interaction.fields.getTextInputValue('zoneNeeds')?.trim().slice(0, 500) || '—';
+
+                const sanitizedPolicy = rawPolicy
+                        .normalize('NFD')
+                        .replace(/\p{Diacritic}/gu, '')
+                        .replace(/[\s_-]+/g, ' ')
+                        .trim();
+
+                const normalizedPolicyKey = (() => {
+                        if (!sanitizedPolicy) return 'ask';
+                        if (sanitizedPolicy.startsWith('open') || sanitizedPolicy.startsWith('ouver')) return 'open';
+                        if (sanitizedPolicy.startsWith('clos') || sanitizedPolicy.startsWith('ferm')) return 'closed';
+                        if (sanitizedPolicy.includes('demande') || sanitizedPolicy.startsWith('ask')) return 'ask';
+                        return 'ask';
+                })();
+
+                const policyDisplay =
+                        normalizedPolicyKey === 'open'
+                                ? 'Ouvert'
+                                : normalizedPolicyKey === 'closed'
+                                ? 'Fermé'
+                                : 'Sur demande';
 
                 const requestsChannelId = await this.#getRequestsChannelId(interaction.guildId);
                 const embed = new EmbedBuilder()
@@ -149,6 +181,7 @@ class ZoneService {
                         .setDescription(pitch || '—')
                         .addFields(
                                 { name: 'Nom proposé', value: name, inline: false },
+                                { name: 'Politique souhaitée', value: policyDisplay, inline: false },
                                 { name: 'Demandeur', value: `<@${interaction.user.id}> (${interaction.user.id})`, inline: false },
                                 { name: 'Besoins / membres pressentis', value: needs || '—', inline: false }
                         )
@@ -665,6 +698,31 @@ class ZoneService {
                         [zone.id, userId, 'member']
                 );
                 await this.#refreshPanel(zone.id, ['members']);
+        }
+
+        async resolveZoneContextForChannel(channel) {
+                if (!channel || !channel.guild) return null;
+
+                const categoryId = channel.parentId || (channel.type === ChannelType.GuildCategory ? channel.id : null);
+                if (!categoryId) return null;
+
+                const zone = await this.#getZoneByCategory(categoryId);
+                if (!zone) return null;
+
+                const kind =
+                        channel.id === zone.text_panel_id
+                                ? 'panel'
+                                : channel.id === zone.text_reception_id
+                                ? 'reception'
+                                : channel.id === zone.text_general_id
+                                ? 'general'
+                                : channel.id === zone.text_anon_id
+                                ? 'anon'
+                                : channel.id === zone.voice_id
+                                ? 'voice'
+                                : 'other';
+
+                return { zone, kind };
         }
 
         async removeMember(zoneId, userId) {

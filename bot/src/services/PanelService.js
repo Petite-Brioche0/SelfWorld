@@ -30,7 +30,7 @@ class PanelService {
 	async renderInitialPanel({ zone }) {
 		if (!zone?.id) return;
 		try {
-			await this.refresh(zone.id, ['members', 'roles', 'channels', 'policy']);
+			await this.refresh(zone.id, ['members', 'roles', 'channels', 'policy', 'refresh']);
 		} catch (err) {
 			this.logger?.warn({ err, zoneId: zone?.id }, 'Failed to render initial panel');
 		}
@@ -50,11 +50,11 @@ class PanelService {
 		let record = rows[0];
 
                 const map = {
-                        refresh: { column: 'refresh_msg_id', render: () => this.renderRefresh(zoneRow) },
-                        members: { column: 'members_msg_id', render: () => this.renderMembers(zoneRow) },
-                        roles: { column: 'roles_msg_id', render: () => this.renderRoles(zoneRow) },
-                        channels: { column: 'channels_msg_id', render: () => this.renderChannels(zoneRow) },
-			policy: { column: 'policy_msg_id', render: () => this.renderPolicy(zoneRow) }
+			members: { column: 'members_msg_id', render: () => this.renderMembers(zoneRow) },
+			roles: { column: 'roles_msg_id', render: () => this.renderRoles(zoneRow) },
+			channels: { column: 'channels_msg_id', render: () => this.renderChannels(zoneRow) },
+			policy: { column: 'policy_msg_id', render: () => this.renderPolicy(zoneRow) },
+                        refresh: { column: 'refresh_msg_id', render: () => this.renderRefresh(zoneRow) }
 		};
 
 		const messages = {};
@@ -103,14 +103,14 @@ class PanelService {
 		}
 		const record = recordRows[0];
 
-                if (!sections.length) sections = ['refresh', 'members', 'roles', 'channels', 'policy'];
+                if (!sections.length) sections = ['members', 'roles', 'channels', 'policy', 'refresh'];
 
                 const map = {
-                        refresh: { column: 'refresh_msg_id', render: () => this.renderRefresh(zoneRow) },
-                        members: { column: 'members_msg_id', render: () => this.renderMembers(zoneRow) },
-                        roles: { column: 'roles_msg_id', render: () => this.renderRoles(zoneRow) },
-                        channels: { column: 'channels_msg_id', render: () => this.renderChannels(zoneRow) },
-			policy: { column: 'policy_msg_id', render: () => this.renderPolicy(zoneRow) }
+			members: { column: 'members_msg_id', render: () => this.renderMembers(zoneRow) },
+			roles: { column: 'roles_msg_id', render: () => this.renderRoles(zoneRow) },
+			channels: { column: 'channels_msg_id', render: () => this.renderChannels(zoneRow) },
+			policy: { column: 'policy_msg_id', render: () => this.renderPolicy(zoneRow) },
+                        refresh: { column: 'refresh_msg_id', render: () => this.renderRefresh(zoneRow) }
 		};
 
                 for (const key of sections) {
@@ -201,16 +201,17 @@ class PanelService {
                 } catch {}
 
                 const embed = new EmbedBuilder()
-                        .setTitle('🔄 Rafraîchir le panneau')
+                        .setTitle('🛠️ Panneau à jour ?')
                         .setDescription(
-                                'Forcer la mise à jour des sections du panneau. **Attention :** certaines modifications peuvent ne pas apparaître immédiatement.'
+                                'Il arrive que le panneau mette quelques minutes à refléter les changements. Si quelque chose paraît bloqué, utilise le bouton ci-dessous pour forcer une actualisation immédiate.'
                         )
-                        .setColor(resolvedColor || 0x5865f2);
+                        .setColor(resolvedColor || 0x5865f2)
+                        .setFooter({ text: 'Disponible uniquement pour l’équipe de gestion de la zone.' });
 
                 const row = new ActionRowBuilder().addComponents(
                         new ButtonBuilder()
                                 .setCustomId(`panel:refresh:${zoneRow.id}`)
-                                .setLabel('Actualiser')
+                                .setLabel('🔄 Actualiser maintenant')
                                 .setStyle(ButtonStyle.Secondary)
                 );
 
@@ -841,15 +842,6 @@ class PanelService {
                        components.push(new ActionRowBuilder().addComponents(approverSelect));
                }
 
-               components.push(
-                       new ActionRowBuilder().addComponents(
-                               new ButtonBuilder()
-                                       .setCustomId(`panel:refresh:${zoneRow.id}`)
-                                       .setLabel('🔄 Rafraîchir le panneau')
-                                       .setStyle(ButtonStyle.Secondary)
-                       )
-               );
-
                return { embed, components };
        }
 
@@ -1384,7 +1376,7 @@ class PanelService {
                 if (parts[1] === 'refresh') {
                         try {
                                 await interaction.deferUpdate().catch(() => {});
-                                await this.refresh(zoneRow.id, ['members', 'roles', 'channels', 'policy']);
+                                await this.refresh(zoneRow.id, ['members', 'roles', 'channels', 'policy', 'refresh']);
                                 if (!interaction.deferred && !interaction.replied) {
                                         await interaction
                                                 .reply({ content: 'Panneau actualisé.', flags: MessageFlags.Ephemeral })
