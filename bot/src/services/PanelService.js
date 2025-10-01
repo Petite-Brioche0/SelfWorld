@@ -206,7 +206,6 @@ class PanelService {
                                 'Il arrive que le panneau mette quelques minutes à refléter les changements. Si quelque chose paraît bloqué, utilise le bouton ci-dessous pour forcer une actualisation immédiate.'
                         )
                         .setColor(resolvedColor || 0x5865f2)
-                        .setFooter({ text: 'Disponible uniquement pour l’équipe de gestion de la zone.' });
 
                 const row = new ActionRowBuilder().addComponents(
                         new ButtonBuilder()
@@ -278,7 +277,7 @@ class PanelService {
                         embed.setDescription(
                                 assignableZoneRoles.length
                                         ? 'Gère les rôles de ce membre grâce au menu ci-dessous.'
-                                        : 'Aucun rôle personnalisable à attribuer pour cette zone.'
+                                        : 'Aucun rôle personnalisé à attribuer pour cette zone.'
                         );
 
                         const memberRoleIds = new Set(selectedMember.roles.cache?.map((r) => r.id) || []);
@@ -291,7 +290,7 @@ class PanelService {
                         const list = currentDisplay.length
                                 ? currentDisplay.map((zr) => `• <@&${zr.role.id}>`).join('\n')
                                 : 'Aucun rôle de la zone.';
-                        embed.addFields({ name: 'Rôles de la zone (actuels)', value: list, inline: false });
+                        embed.addFields({ name: 'Rôles de la zone', value: list, inline: false });
 
                         // Select zone roles excluding Owner/Member (managed automatically)
                         const roleOptions = assignableZoneRoles.slice(0, 25).map((zr) => ({

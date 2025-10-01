@@ -1,6 +1,6 @@
 
 module.exports = {
-	name: 'ready',
+	name: 'clientReady',
 	once: true,
 	async execute(client) {
 		const { logger, services } = client.context;
