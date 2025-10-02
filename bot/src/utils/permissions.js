@@ -7,7 +7,7 @@ async function applyZoneOverwrites(category, { everyoneRole, zoneMemberRole, zon
                 { id: zoneMemberRole.id, allow: [PermissionFlagsBits.ViewChannel] },
                 {
                         id: zoneOwnerRole.id,
-                        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels]
+                        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
                 }
         ];
 
@@ -113,15 +113,14 @@ async function applyZoneOverwrites(category, { everyoneRole, zoneMemberRole, zon
                                                 PermissionFlagsBits.ReadMessageHistory
                                         ]
                                 },
-                                {
-                                        id: zoneOwnerRole.id,
-                                        allow: [
-                                                PermissionFlagsBits.ViewChannel,
-                                                PermissionFlagsBits.SendMessages,
-                                                PermissionFlagsBits.ReadMessageHistory,
-                                                PermissionFlagsBits.ManageChannels
-                                        ]
-                                }
+                        {
+                                id: zoneOwnerRole.id,
+                                allow: [
+                                        PermissionFlagsBits.ViewChannel,
+                                        PermissionFlagsBits.SendMessages,
+                                        PermissionFlagsBits.ReadMessageHistory
+                                ]
+                        }
                         ];
 
                         if (botRole) {
@@ -155,15 +154,14 @@ async function applyZoneOverwrites(category, { everyoneRole, zoneMemberRole, zon
                                                 PermissionFlagsBits.Speak
                                         ]
                                 },
-                                {
-                                        id: zoneOwnerRole.id,
-                                        allow: [
-                                                PermissionFlagsBits.ViewChannel,
-                                                PermissionFlagsBits.Connect,
-                                                PermissionFlagsBits.Speak,
-                                                PermissionFlagsBits.ManageChannels
-                                        ]
-                                }
+                        {
+                                id: zoneOwnerRole.id,
+                                allow: [
+                                        PermissionFlagsBits.ViewChannel,
+                                        PermissionFlagsBits.Connect,
+                                        PermissionFlagsBits.Speak
+                                ]
+                        }
                         ];
 
                         if (botRole) {

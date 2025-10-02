@@ -19,7 +19,8 @@ class WelcomeService {
         }
 
         async sendWizardToUser(target, options = {}) {
-                const payload = this.#buildWizardPayload();
+                const guildId = options.guildId || target?.guild?.id || target?.guildId || null;
+                const payload = this.#buildWizardPayload(guildId);
                 if (options.mentionId) {
                         payload.content = `<@${options.mentionId}>`;
                 }
@@ -58,8 +59,11 @@ class WelcomeService {
                         return this.#showJoinCodeModal(interaction);
                 }
 
-                if (id === 'welcome:request') {
-                        return this.#showZoneRequestModal(interaction);
+                if (id.startsWith('welcome:request')) {
+                        const parts = id.split(':');
+                        const requestedGuildId = parts.length >= 3 ? parts[2] : null;
+                        const guildId = requestedGuildId || interaction.guildId || interaction.guild?.id || null;
+                        return this.#showZoneRequestModal(interaction, guildId);
                 }
 
                 return false;
@@ -72,14 +76,10 @@ class WelcomeService {
                         return this.#handleJoinCodeModal(interaction);
                 }
 
-                if (id === 'welcome:request:modal') {
-                        return this.#handleZoneRequestModal(interaction);
-                }
-
                 return false;
         }
 
-        #buildWizardPayload() {
+        #buildWizardPayload(guildId = null) {
                 const intro = new EmbedBuilder()
                         .setTitle('Bienvenue !')
                         .setColor(0x5865f2)
@@ -101,7 +101,10 @@ class WelcomeService {
                 const row = new ActionRowBuilder().addComponents(
                         new ButtonBuilder().setCustomId('welcome:browse').setLabel('Découvrir les zones').setStyle(ButtonStyle.Primary),
                         new ButtonBuilder().setCustomId('welcome:joincode').setLabel('Rejoindre via un code').setStyle(ButtonStyle.Secondary),
-                        new ButtonBuilder().setCustomId('welcome:request').setLabel('Demander une zone').setStyle(ButtonStyle.Secondary)
+                        new ButtonBuilder()
+                                .setCustomId(guildId ? `welcome:request:${guildId}` : 'welcome:request')
+                                .setLabel('Demander une zone')
+                                .setStyle(ButtonStyle.Secondary)
                 );
 
                 return { embeds: [intro, assistant], components: [row] };
@@ -349,8 +352,9 @@ class WelcomeService {
                 return interaction.showModal(modal);
         }
 
-        async #showZoneRequestModal(interaction) {
-                const modal = new ModalBuilder().setCustomId('welcome:request:modal').setTitle('Demander une nouvelle zone');
+        async #showZoneRequestModal(interaction, guildId = null) {
+                const modalId = guildId ? `welcome:request:modal:${guildId}` : 'welcome:request:modal';
+                const modal = new ModalBuilder().setCustomId(modalId).setTitle('Demander une nouvelle zone');
 
                 modal.addComponents(
                         new ActionRowBuilder().addComponents(
@@ -408,48 +412,6 @@ class WelcomeService {
                                 content: err?.message ? `❌ ${err.message}` : 'Code invalide ou expiré.'
                         });
                 }
-        }
-
-        async #handleZoneRequestModal(interaction) {
-                const name = interaction.fields.getTextInputValue('welcomeRequestName')?.trim().slice(0, 64) || 'Sans nom';
-                const pitch = interaction.fields.getTextInputValue('welcomeRequestPitch')?.trim().slice(0, 500) || '—';
-                const tags = interaction.fields
-                        .getTextInputValue('welcomeRequestTags')
-                        ?.split(',')
-                        .map((entry) => entry.trim())
-                        .filter((entry) => entry.length)
-                        .slice(0, 8);
-
-                const embed = new EmbedBuilder()
-                        .setTitle('Nouvelle demande de zone')
-                        .setDescription(pitch)
-                        .addFields(
-                                { name: 'Proposée par', value: `<@${interaction.user.id}> (${interaction.user.id})`, inline: false },
-                                { name: 'Nom suggéré', value: name, inline: false },
-                                { name: 'Tags', value: tags?.length ? tags.join(', ') : '—', inline: false }
-                        )
-                        .setTimestamp(new Date())
-                        .setColor(0x5865f2);
-
-                let delivered = false;
-                const ownerId = this.client?.context?.config?.ownerUserId || process.env.OWNER_ID || process.env.OWNER_USER_ID;
-                if (ownerId) {
-                        try {
-                                const ownerUser = await this.client.users.fetch(ownerId);
-                                await ownerUser.send({ embeds: [embed] });
-                                delivered = true;
-                        } catch (err) {
-                                this.logger?.warn({ err, ownerId }, 'Failed to DM owner with zone request');
-                        }
-                }
-
-                if (!delivered) {
-                        this.logger?.info({ name, userId: interaction.user.id }, 'Zone request could not be delivered directly');
-                }
-
-                return this.#sendReply(interaction, {
-                        content: 'Merci ! Ta demande a été transmise à l’équipe.'
-                });
         }
 
         #buildZoneDetailsEmbed(zone, activity, memberCount) {

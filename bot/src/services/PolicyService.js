@@ -178,24 +178,29 @@ class PolicyService {
         async handleZoneRequestModal(interaction) {
                 await this.#ensureSchema();
 
-                if (!interaction.guildId) {
-                        await interaction
-                                .reply({ content: 'Serveur introuvable pour cette demande.', flags: MessageFlags.Ephemeral })
-                                .catch(() => {});
+                const payload = this.#extractCreationRequestPayload(interaction);
+                const guildId = interaction.guildId || payload.guildId || null;
+                if (!guildId) {
+                        const content = 'Serveur introuvable pour cette demande.';
+                        if (interaction.replied || interaction.deferred) {
+                                await interaction.followUp({ content, flags: MessageFlags.Ephemeral }).catch(() => {});
+                        } else {
+                                await interaction.reply({ content, flags: MessageFlags.Ephemeral }).catch(() => {});
+                        }
                         return true;
                 }
 
+                const replyOpts = interaction.inGuild?.() ? { flags: MessageFlags.Ephemeral } : {};
                 if (!interaction.deferred && !interaction.replied) {
-                        await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
+                        await interaction.deferReply(replyOpts).catch(() => {});
                 }
 
                 try {
-                        const payload = this.#extractCreationRequestPayload(interaction);
                         const nameResult = validateZoneName(payload.name);
                         const descResult = validateZoneDescription(payload.description);
                         const errors = [...nameResult.errors, ...descResult.errors];
 
-                        const conflict = await this.#zoneNameExists(interaction.guildId, nameResult.value);
+                        const conflict = await this.#zoneNameExists(guildId, nameResult.value);
                         if (conflict) {
                                 errors.push('Nom indisponible : une zone existe déjà avec ce nom.');
                         }
@@ -210,7 +215,7 @@ class PolicyService {
                         const [res] = await this.db.query(
                                 'INSERT INTO zone_creation_requests (guild_id, user_id, owner_user_id, name, description, extras, policy, validation_errors) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                                 [
-                                        interaction.guildId,
+                                        guildId,
                                         interaction.user.id,
                                         interaction.user.id,
                                         nameResult.value,
@@ -224,7 +229,7 @@ class PolicyService {
                         const requestId = res.insertId;
                         const request = this.#hydrateCreationRequest({
                                 id: requestId,
-                                guild_id: interaction.guildId,
+                                guild_id: guildId,
                                 user_id: interaction.user.id,
                                 owner_user_id: interaction.user.id,
                                 name: nameResult.value,
@@ -1227,28 +1232,33 @@ class PolicyService {
                                 description: interaction.fields.getTextInputValue('zonePitch') || '',
                                 extras: {
                                         needs: interaction.fields.getTextInputValue('zoneNeeds') || ''
-                                }
+                                },
+                                guildId: interaction.guildId || null
                         };
                 }
 
-                if (customId === 'welcome:request:modal') {
+                if (customId.startsWith('welcome:request:modal')) {
                         const rawTags = interaction.fields.getTextInputValue('welcomeRequestTags') || '';
                         const tags = rawTags
                                 .split(',')
                                 .map((entry) => entry.trim())
                                 .filter((entry) => entry.length)
                                 .slice(0, 8);
+                        const parts = customId.split(':');
+                        const guildIdFromId = parts.length >= 4 ? parts[3] : null;
                         return {
                                 name: interaction.fields.getTextInputValue('welcomeRequestName') || '',
                                 description: interaction.fields.getTextInputValue('welcomeRequestPitch') || '',
-                                extras: { tags }
+                                extras: { tags },
+                                guildId: guildIdFromId || interaction.guildId || null
                         };
                 }
 
                 return {
                         name: interaction.fields.getTextInputValue('zoneName') || '',
                         description: interaction.fields.getTextInputValue('zonePitch') || '',
-                        extras: {}
+                        extras: {},
+                        guildId: interaction.guildId || null
                 };
         }
 

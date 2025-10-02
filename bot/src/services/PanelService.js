@@ -513,7 +513,8 @@ class PanelService {
 			.setMinValues(1)
 			.setMaxValues(1);
 
-		const selectOptions = channels.slice(0, 25).map((entry) => ({
+		const manageableChannels = channels.filter((entry) => !entry.isProtected);
+		const selectOptions = manageableChannels.slice(0, 25).map((entry) => ({
 			label: entry.channel.name.slice(0, 100),
 			value: entry.channel.id,
 			description:
@@ -535,7 +536,7 @@ class PanelService {
 		const rows = [addRow, new ActionRowBuilder().addComponents(select)];
 
 		const selectedEntry = selectedChannelId
-			? channels.find((entry) => entry.channel.id === selectedChannelId) || null
+			? manageableChannels.find((entry) => entry.channel.id === selectedChannelId) || null
 			: null;
 
 		if (!selectedEntry) {
@@ -1029,9 +1030,7 @@ class PanelService {
 			PermissionFlagsBits.Speak
 		];
 
-		const ownerAllow = channel.type === ChannelType.GuildVoice
-			? [...voiceAllow, PermissionFlagsBits.ManageChannels]
-			: [...textAllow, PermissionFlagsBits.ManageChannels];
+		const ownerAllow = channel.type === ChannelType.GuildVoice ? voiceAllow : textAllow;
 		if (zoneRow.role_owner_id) {
 			overwrites.push({ id: zoneRow.role_owner_id, allow: ownerAllow });
 		}

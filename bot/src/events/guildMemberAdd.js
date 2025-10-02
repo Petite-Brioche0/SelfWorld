@@ -55,7 +55,7 @@ module.exports = {
                 if (!welcomeService) return;
 
                 try {
-                        await welcomeService.sendWizardToUser(member);
+                        await welcomeService.sendWizardToUser(member, { guildId: member.guild.id });
                         return;
                 } catch (err) {
                         logger?.info({ err, guildId: member.guild.id, userId: member.id }, 'Direct message welcome failed');
@@ -65,7 +65,7 @@ module.exports = {
                 if (!channel) return;
 
                 try {
-                        await welcomeService.sendWizardToUser(channel, { mentionId: member.id });
+                        await welcomeService.sendWizardToUser(channel, { mentionId: member.id, guildId: member.guild.id });
                 } catch (err) {
                         logger?.warn({ err, channelId: channel.id }, 'Failed to send fallback welcome message');
                 }

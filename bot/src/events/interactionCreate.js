@@ -14,7 +14,7 @@ function resolveCooldown(interaction) {
 
         if (interaction.isModalSubmit()) {
                 const id = interaction.customId || '';
-                if (id.startsWith('zone:request:') || id === 'welcome:request:modal') {
+                if (id.startsWith('zone:request:') || id.startsWith('welcome:request:modal')) {
                         return { key: 'zone.request.create', seconds: 600 };
                 }
                 if (id.startsWith('req:editaccept:')) {
@@ -237,16 +237,24 @@ module.exports = {
                                         await services.policy.handleCreationRequestModal(interaction);
                                         return;
                                 }
-                                if (id.startsWith('zone:request:') || id === 'welcome:request:modal') {
+                                if (id.startsWith('welcome:joincode:modal')) {
+                                        await services.welcome.handleModal(interaction);
+                                        return;
+                                }
+                                if (id.startsWith('welcome:request:modal')) {
+                                        await services.policy.handleZoneRequestModal(interaction);
+                                        return;
+                                }
+                                if (id.startsWith('welcome:')) {
+                                        await services.welcome.handleModal(interaction);
+                                        return;
+                                }
+                                if (id.startsWith('zone:request:')) {
                                         await services.policy.handleZoneRequestModal(interaction);
                                         return;
                                 }
                                 if (id.startsWith('panel:policy:profile:modal:')) {
                                         await services.policy.handleProfileModal(interaction);
-                                        return;
-                                }
-                                if (id.startsWith('welcome:')) {
-                                        await services.welcome.handleModal(interaction);
                                         return;
                                 }
                                 if (id.startsWith('panel:')) {
