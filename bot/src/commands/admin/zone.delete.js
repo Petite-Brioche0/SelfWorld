@@ -24,7 +24,6 @@ module.exports = {
 
         async execute(interaction, ctx) {
                 if (!interaction.deferred && !interaction.replied) {
-                        // utilise les flags pour éviter le warning "ephemeral deprecated"
                         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 }
 

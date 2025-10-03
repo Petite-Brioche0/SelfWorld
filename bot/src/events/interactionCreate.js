@@ -1,6 +1,6 @@
 const { InteractionType, MessageFlags, DiscordAPIError } = require('discord.js');
 
-const DEFAULT_THROTTLE_SECONDS = 4;
+const DEFAULT_THROTTLE_SECONDS = 3;
 
 function isUnknownInteractionError(error) {
         if (!error) return false;
@@ -15,19 +15,19 @@ function resolveCooldown(interaction) {
         if (interaction.isModalSubmit()) {
                 const id = interaction.customId || '';
                 if (id.startsWith('zone:request:') || id.startsWith('welcome:request:modal')) {
-                        return { key: 'zone.request.create', seconds: 600 };
+                        return { key: 'zone.request.create', seconds: 180 };
                 }
                 if (id.startsWith('req:editaccept:')) {
-                        return { key: 'zone.request.review', seconds: 8 };
+                        return { key: 'zone.request.review', seconds: 3 };
                 }
                 if (id.startsWith('panel:role:create')) {
-                        return { key: 'zone.role.create', seconds: 60 };
+                        return { key: 'zone.role.create', seconds: 10 };
                 }
                 if (id.startsWith('panel:ch:create')) {
-                        return { key: 'panel.channels.edit', seconds: 25 };
+                        return { key: 'panel.channels.edit', seconds: 15 };
                 }
                 if (id.startsWith('panel:')) {
-                        return { key: 'panel.modal', seconds: 10 };
+                        return { key: 'panel.modal', seconds: 5 };
                 }
                 return { key: 'modal.generic', seconds: DEFAULT_THROTTLE_SECONDS };
         }
@@ -35,25 +35,25 @@ function resolveCooldown(interaction) {
         if (interaction.isButton()) {
                 const id = interaction.customId || '';
                 if (id.startsWith('panel:refresh:')) {
-                        return { key: 'panel.refresh', seconds: 10 };
+                        return { key: 'panel.refresh', seconds: 5 };
                 }
                 if (id.startsWith('panel:role:')) {
-                        return { key: 'panel.roles.edit', seconds: 25 };
+                        return { key: 'panel.roles.edit', seconds: 5 };
                 }
                 if (id.startsWith('panel:ch:')) {
-                        return { key: 'panel.channels.edit', seconds: 25 };
+                        return { key: 'panel.channels.edit', seconds: 5 };
                 }
                 if (id.startsWith('panel:member:')) {
-                        return { key: 'panel.members.manage', seconds: 15 };
+                        return { key: 'panel.members.manage', seconds: 5 };
                 }
                 if (id.startsWith('panel:policy:')) {
-                        return { key: 'panel.policy', seconds: 12 };
+                        return { key: 'panel.policy', seconds: 3 };
                 }
                 if (id.startsWith('req:')) {
-                        return { key: 'zone.request.review', seconds: 8 };
+                        return { key: 'zone.request.review', seconds: 5 };
                 }
                 if (id.startsWith('zone:approve:') || id.startsWith('zone:reject:')) {
-                        return { key: 'zone.request.review', seconds: 8 };
+                        return { key: 'zone.request.review', seconds: 5 };
                 }
                 if (id.startsWith('welcome:')) {
                         return { key: 'welcome.flow', seconds: 5 };
@@ -64,13 +64,13 @@ function resolveCooldown(interaction) {
         if (interaction.isStringSelectMenu()) {
                 const id = interaction.customId || '';
                 if (id.startsWith('panel:policy:')) {
-                        return { key: 'panel.policy', seconds: 10 };
+                        return { key: 'panel.policy', seconds: 2 };
                 }
                 if (id.startsWith('panel:')) {
-                        return { key: 'panel.select', seconds: 6 };
+                        return { key: 'panel.select', seconds: 2 };
                 }
                 if (id.startsWith('admin:zonecreate:')) {
-                        return { key: 'zone.create.policy', seconds: 20 };
+                        return { key: 'zone.create.policy', seconds: 10 };
                 }
                 return { key: 'select.generic', seconds: DEFAULT_THROTTLE_SECONDS };
         }
@@ -215,6 +215,13 @@ module.exports = {
                                 }
                                 if (id.startsWith('req:')) {
                                         await services.policy.handleCreationRequestButton(interaction);
+                                        return;
+                                }
+                                if (id.startsWith('zone:inactive:')) {
+                                        await services.activity.handleInactivityButton(interaction, {
+                                                zoneService: services.zone,
+                                                ownerUserId: ownerId
+                                        });
                                         return;
                                 }
                                 if (id.startsWith('temp:extend:') || id.startsWith('temp:delete:')) {

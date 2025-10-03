@@ -137,11 +137,11 @@ class PolicyService {
                         if (approved) {
                                 await this.#grantZoneMembership(zone, targetUserId);
                                 await this.#dmUser(targetUserId, {
-                                        content: `🎉 Ta demande pour **${zone.name}** a été acceptée !`
+                                        content: `✅ Ta demande pour **${zone.name}** a été acceptée !`
                                 });
                         } else {
                                 await this.#dmUser(targetUserId, {
-                                        content: `Ta demande pour **${zone.name}** a été refusée.`
+                                        content: `❌ Ta demande pour **${zone.name}** a été refusée.`
                                 });
                         }
 

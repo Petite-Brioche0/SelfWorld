@@ -164,29 +164,8 @@ class AnonService {
         this.logger?.warn?.({ err, zoneId: row.zone_id }, 'Failed to relay anonymous message');
         });
         }
-                }
+    }
 
-        async presentOptions(interaction, { message = null } = {}) {
-                const baseText = [
-                        '📣 Les messages envoyés dans ce salon sont relayés anonymement aux zones participantes.',
-                        '🚨 Les abus sont consignés et peuvent entraîner des sanctions.'
-                ];
-
-                if (message?.url) {
-                        baseText.push(`Message ciblé : ${message.url}`);
-                }
-
-                const payload = {
-                        content: baseText.join('\n'),
-                        flags: MessageFlags.Ephemeral
-                };
-
-                if (interaction.deferred || interaction.replied) {
-                        return interaction.followUp(payload);
-                }
-
-                return interaction.reply(payload);
-        }
 }
 
 module.exports = { AnonService };
