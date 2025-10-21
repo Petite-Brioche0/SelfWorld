@@ -57,6 +57,7 @@ const client = new Client({
 		}
 
 		// Services
+		await db.ensureSchema();
 		const pool = db.getPool();
                 const zoneService = new ZoneService(client, pool, process.env.OWNER_ID, logger);
                 const policyService = new PolicyService(client, pool, logger);

@@ -14,6 +14,12 @@ module.exports = {
 			services.tempGroup.sweepExpired().catch(err => logger.error({ err }, 'sweepExpired failed'));
 		}, 60 * 60 * 1000);
 
+		// Enforce freeze policy every 15 minutes
+		setInterval(() => {
+			services.tempGroup.enforceFreezePolicy(72).catch(err => logger.error({ err }, 'enforceFreezePolicy failed'));
+			services.tempGroup.cleanupFreezeVotes().catch(err => logger.error({ err }, 'cleanupFreezeVotes failed'));
+		}, 15 * 60 * 1000);
+
 		// Post low-activity alerts daily
 		setInterval(() => {
 			services.activity.postLowActivityAlerts().catch(err => logger.error({ err }, 'activity alerts failed'));

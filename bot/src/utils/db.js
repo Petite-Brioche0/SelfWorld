@@ -1,3 +1,5 @@
+const path = require('node:path');
+const fs = require('node:fs/promises');
 const mysql = require('mysql2/promise');
 
 let pool;
@@ -12,7 +14,8 @@ function getPool() {
 			database: process.env.DB_NAME,
 			connectionLimit: 10,
 			namedPlaceholders: true,
-			decimalNumbers: true
+			decimalNumbers: true,
+			multipleStatements: true
 		});
 	}
 	return pool;
@@ -38,8 +41,40 @@ async function query(sql, params = {}) {
 	return rows;
 }
 
+async function ensureSchema() {
+	const schemaPath = path.join(__dirname, '..', '..', 'schema.sql');
+	const content = await fs.readFile(schemaPath, 'utf8');
+	const sanitized = content
+		.replace(/\/\*[\s\S]*?\*\//g, '')
+		.replace(/--.*$/gm, '')
+		.trim();
+
+	if (!sanitized.length) {
+		return;
+	}
+
+	const statements = sanitized
+		.split(';')
+		.map((stmt) => stmt.trim())
+		.filter((stmt) => stmt.length);
+
+	if (!statements.length) {
+		return;
+	}
+
+	const connection = await getPool().getConnection();
+
+	try {
+		const sql = statements.map((stmt) => `${stmt};`).join('\n');
+		await connection.query(sql);
+	} finally {
+		connection.release();
+	}
+}
+
 module.exports = {
 	getPool,
 	withTransaction,
-	query
+	query,
+	ensureSchema
 };
