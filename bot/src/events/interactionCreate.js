@@ -45,6 +45,12 @@ function resolveCooldown(interaction) {
 
        if (interaction.isButton()) {
                const id = interaction.customId || '';
+               if (id === 'temp:fromAnon:create:closed' || id === 'temp:fromAnon:create:open') {
+                       return { key: 'anon.temp.create', seconds: 10 };
+               }
+               if (id.startsWith('temp:open:join:') || id.startsWith('temp:open:spectate:')) {
+                       return { key: 'anon.temp.participate', seconds: 6 };
+               }
                if (id.startsWith('temp:panel:')) {
                        return { key: 'temp.panel.button', seconds: 6 };
                }
@@ -81,11 +87,14 @@ function resolveCooldown(interaction) {
                 return { key: 'button.generic', seconds: DEFAULT_THROTTLE_SECONDS };
         }
 
-        if (interaction.isStringSelectMenu()) {
-                const id = interaction.customId || '';
-                if (id.startsWith('panel:policy:')) {
-                        return { key: 'panel.policy', seconds: 10 };
-                }
+       if (interaction.isStringSelectMenu()) {
+               const id = interaction.customId || '';
+               if (id === 'temp:fromAnon:closed:select') {
+                       return { key: 'anon.temp.select', seconds: 12 };
+               }
+               if (id.startsWith('panel:policy:')) {
+                       return { key: 'panel.policy', seconds: 10 };
+               }
                 if (id.startsWith('panel:')) {
                         return { key: 'panel.select', seconds: 6 };
                 }
@@ -190,6 +199,17 @@ module.exports = {
 
                         if (interaction.isStringSelectMenu()) {
                                 const id = customId;
+                                if (id === 'temp:fromAnon:closed:select') {
+                                        if (!services.anon) {
+                                                await safeReply(interaction, {
+                                                        content: 'Service indisponible.',
+                                                        flags: MessageFlags.Ephemeral
+                                                });
+                                                return;
+                                        }
+                                        await services.anon.handleFromAnonClosedSelect(interaction);
+                                        return;
+                                }
                                 if (id.startsWith('admin:zonecreate:')) {
                                         const cmd = commands.get('zone-create');
                                         if (cmd?.handlePolicySelect) {
@@ -217,6 +237,66 @@ module.exports = {
 
                         if (interaction.isButton()) {
                                 const id = customId;
+                                if (id === 'temp:fromAnon:create:closed') {
+                                        if (!services.anon) {
+                                                await safeReply(interaction, {
+                                                        content: 'Service indisponible.',
+                                                        flags: MessageFlags.Ephemeral
+                                                });
+                                                return;
+                                        }
+                                        await services.anon.handleFromAnonCreateClosed(interaction);
+                                        return;
+                                }
+                                if (id === 'temp:fromAnon:create:open') {
+                                        if (!services.anon) {
+                                                await safeReply(interaction, {
+                                                        content: 'Service indisponible.',
+                                                        flags: MessageFlags.Ephemeral
+                                                });
+                                                return;
+                                        }
+                                        await services.anon.handleFromAnonCreateOpen(interaction);
+                                        return;
+                                }
+                                if (id.startsWith('temp:open:join:')) {
+                                        if (!services.anon) {
+                                                await safeReply(interaction, {
+                                                        content: 'Service indisponible.',
+                                                        flags: MessageFlags.Ephemeral
+                                                });
+                                                return;
+                                        }
+                                        const groupId = Number(id.split(':')[3]);
+                                        if (!Number.isFinite(groupId)) {
+                                                await safeReply(interaction, {
+                                                        content: 'Identifiant de groupe invalide.',
+                                                        flags: MessageFlags.Ephemeral
+                                                });
+                                                return;
+                                        }
+                                        await services.anon.handleOpenJoin(interaction, groupId);
+                                        return;
+                                }
+                                if (id.startsWith('temp:open:spectate:')) {
+                                        if (!services.anon) {
+                                                await safeReply(interaction, {
+                                                        content: 'Service indisponible.',
+                                                        flags: MessageFlags.Ephemeral
+                                                });
+                                                return;
+                                        }
+                                        const groupId = Number(id.split(':')[3]);
+                                        if (!Number.isFinite(groupId)) {
+                                                await safeReply(interaction, {
+                                                        content: 'Identifiant de groupe invalide.',
+                                                        flags: MessageFlags.Ephemeral
+                                                });
+                                                return;
+                                        }
+                                        await services.anon.handleOpenSpectate(interaction, groupId);
+                                        return;
+                                }
                                 const tempGroupService = services.tempGroup;
                                 if (id.startsWith('temp:panel:')) {
                                         if (!tempGroupService) {
