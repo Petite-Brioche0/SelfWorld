@@ -8,6 +8,13 @@ module.exports = {
 		const services = client.context.services || {};
 		const logger = client.context.logger;
 
+		const tempGroupService = services.tempGroup;
+		if (tempGroupService?.setLastActivityByTextChannel) {
+			await tempGroupService.setLastActivityByTextChannel(message.channelId).catch((err) => {
+				logger?.warn({ err, channelId: message.channelId }, 'Temp group activity update failed');
+			});
+		}
+
 		const anon = services.anon;
 		if (anon?.handleMessage) {
 			await anon.handleMessage(message).catch((error) => {
