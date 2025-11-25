@@ -1,6 +1,18 @@
 const { InteractionType, MessageFlags, DiscordAPIError } = require('discord.js');
+const { parseId } = require('../utils/ids');
 
 const DEFAULT_THROTTLE_SECONDS = 4;
+
+function matchId(parsed, namespace, ...segments) {
+        if (!parsed || parsed.namespace !== namespace) return false;
+        const parts = parsed.parts || parsed.segments || [];
+        for (let i = 0; i < segments.length; i += 1) {
+                if (parts[i] !== segments[i]) {
+                        return false;
+                }
+        }
+        return true;
+}
 
 function isUnknownInteractionError(error) {
         if (!error) return false;
@@ -14,19 +26,20 @@ function resolveCooldown(interaction) {
 
         if (interaction.isModalSubmit()) {
                 const id = interaction.customId || '';
-                if (id.startsWith('zone:request:') || id === 'welcome:request:modal') {
+                const parsed = parseId(id);
+                if (matchId(parsed, 'zone', 'request') || matchId(parsed, 'welcome', 'request', 'modal')) {
                         return { key: 'zone.request.create', seconds: 600 };
                 }
-                if (id.startsWith('req:editaccept:')) {
+                if (matchId(parsed, 'req', 'editaccept')) {
                         return { key: 'zone.request.review', seconds: 8 };
                 }
-                if (id.startsWith('panel:role:create')) {
+                if (matchId(parsed, 'panel', 'role', 'create')) {
                         return { key: 'zone.role.create', seconds: 60 };
                 }
-                if (id.startsWith('panel:ch:create')) {
+                if (matchId(parsed, 'panel', 'ch', 'create')) {
                         return { key: 'panel.channels.edit', seconds: 25 };
                 }
-                if (id.startsWith('panel:')) {
+                if (parsed?.namespace === 'panel') {
                         return { key: 'panel.modal', seconds: 10 };
                 }
                 return { key: 'modal.generic', seconds: DEFAULT_THROTTLE_SECONDS };
@@ -34,28 +47,29 @@ function resolveCooldown(interaction) {
 
         if (interaction.isButton()) {
                 const id = interaction.customId || '';
-                if (id.startsWith('panel:refresh:')) {
+                const parsed = parseId(id);
+                if (matchId(parsed, 'panel', 'refresh')) {
                         return { key: 'panel.refresh', seconds: 10 };
                 }
-                if (id.startsWith('panel:role:')) {
+                if (matchId(parsed, 'panel', 'role')) {
                         return { key: 'panel.roles.edit', seconds: 25 };
                 }
-                if (id.startsWith('panel:ch:')) {
+                if (matchId(parsed, 'panel', 'ch')) {
                         return { key: 'panel.channels.edit', seconds: 25 };
                 }
-                if (id.startsWith('panel:member:')) {
+                if (matchId(parsed, 'panel', 'member')) {
                         return { key: 'panel.members.manage', seconds: 15 };
                 }
-                if (id.startsWith('panel:policy:')) {
+                if (matchId(parsed, 'panel', 'policy')) {
                         return { key: 'panel.policy', seconds: 12 };
                 }
-                if (id.startsWith('req:')) {
+                if (parsed?.namespace === 'req') {
                         return { key: 'zone.request.review', seconds: 8 };
                 }
-                if (id.startsWith('zone:approve:') || id.startsWith('zone:reject:')) {
+                if (matchId(parsed, 'zone', 'approve') || matchId(parsed, 'zone', 'reject')) {
                         return { key: 'zone.request.review', seconds: 8 };
                 }
-                if (id.startsWith('welcome:')) {
+                if (parsed?.namespace === 'welcome') {
                         return { key: 'welcome.flow', seconds: 5 };
                 }
                 return { key: 'button.generic', seconds: DEFAULT_THROTTLE_SECONDS };
@@ -63,13 +77,14 @@ function resolveCooldown(interaction) {
 
         if (interaction.isStringSelectMenu()) {
                 const id = interaction.customId || '';
-                if (id.startsWith('panel:policy:')) {
+                const parsed = parseId(id);
+                if (matchId(parsed, 'panel', 'policy')) {
                         return { key: 'panel.policy', seconds: 10 };
                 }
-                if (id.startsWith('panel:')) {
+                if (parsed?.namespace === 'panel') {
                         return { key: 'panel.select', seconds: 6 };
                 }
-                if (id.startsWith('admin:zonecreate:')) {
+                if (matchId(parsed, 'admin', 'zonecreate')) {
                         return { key: 'zone.create.policy', seconds: 20 };
                 }
                 return { key: 'select.generic', seconds: DEFAULT_THROTTLE_SECONDS };
@@ -163,93 +178,91 @@ module.exports = {
                         }
 
                         const customId = 'customId' in interaction ? interaction.customId || '' : '';
+                        const parsedCustomId = parseId(customId);
                         const isReception = services.zone?.isReceptionChannel?.(interaction.channelId) === true;
-                        if (customId.startsWith('welcome:') && isReception) {
+                        if (parsedCustomId?.namespace === 'welcome' && isReception) {
                                 interaction.forceWelcomeEphemeral = true;
                         }
 
                         if (interaction.isStringSelectMenu()) {
-                                const id = customId;
-                                if (id.startsWith('admin:zonecreate:')) {
+                                if (matchId(parsedCustomId, 'admin', 'zonecreate')) {
                                         const cmd = commands.get('zone-create');
                                         if (cmd?.handlePolicySelect) {
                                                 await cmd.handlePolicySelect(interaction, client.context);
                                                 return;
                                         }
                                 }
-                                if (id.startsWith('panel:policy:set:')) {
+                                if (matchId(parsedCustomId, 'panel', 'policy', 'set')) {
                                         await services.policy.handlePolicySelect(interaction);
                                         return;
                                 }
-                                if (id.startsWith('panel:policy:askmode:')) {
+                                if (matchId(parsedCustomId, 'panel', 'policy', 'askmode')) {
                                         await services.policy.handleAskModeSelect(interaction);
                                         return;
                                 }
-                                if (id.startsWith('panel:policy:approver:')) {
+                                if (matchId(parsedCustomId, 'panel', 'policy', 'approver')) {
                                         await services.policy.handleApproverSelect(interaction);
                                         return;
                                 }
-                                if (id.startsWith('panel:')) {
+                                if (parsedCustomId?.namespace === 'panel') {
                                         await services.panel.handleSelectMenu(interaction);
                                         return;
                                 }
                         }
 
                         if (interaction.isButton()) {
-                                const id = customId;
-                                if (id.startsWith('welcome:')) {
+                                if (parsedCustomId?.namespace === 'welcome') {
                                         await services.welcome.handleButton(interaction);
                                         return;
                                 }
-                                if (id.startsWith('panel:policy:profile:')) {
+                                if (matchId(parsedCustomId, 'panel', 'policy', 'profile')) {
                                         await services.policy.handleProfileButton(interaction);
                                         return;
                                 }
-                                if (id.startsWith('panel:policy:code:gen:')) {
+                                if (matchId(parsedCustomId, 'panel', 'policy', 'code', 'gen')) {
                                         await services.policy.handleGenerateCode(interaction);
                                         return;
                                 }
-                                if (id.startsWith('zone:approve:') || id.startsWith('zone:reject:')) {
+                                if (matchId(parsedCustomId, 'zone', 'approve') || matchId(parsedCustomId, 'zone', 'reject')) {
                                         await services.policy.handleApprovalButton(interaction);
                                         return;
                                 }
-                                if (id.startsWith('req:')) {
+                                if (parsedCustomId?.namespace === 'req') {
                                         await services.policy.handleCreationRequestButton(interaction);
                                         return;
                                 }
-                                if (id.startsWith('temp:extend:') || id.startsWith('temp:delete:')) {
+                                if (matchId(parsedCustomId, 'temp', 'extend') || matchId(parsedCustomId, 'temp', 'delete')) {
                                         await services.tempGroup.handleArchiveButtons(interaction);
                                         return;
                                 }
-                                if (id.startsWith('event:join:')) {
+                                if (matchId(parsedCustomId, 'event', 'join')) {
                                         await services.event.handleJoinButton(interaction);
                                         return;
                                 }
-                                if (id.startsWith('panel:')) {
+                                if (parsedCustomId?.namespace === 'panel') {
                                         await services.panel.handleButton(interaction);
                                         return;
                                 }
                         }
 
                         if (interaction.type === InteractionType.ModalSubmit) {
-                                const id = customId;
-                                if (id.startsWith('req:editaccept:')) {
+                                if (matchId(parsedCustomId, 'req', 'editaccept')) {
                                         await services.policy.handleCreationRequestModal(interaction);
                                         return;
                                 }
-                                if (id.startsWith('zone:request:') || id === 'welcome:request:modal') {
+                                if (matchId(parsedCustomId, 'zone', 'request') || matchId(parsedCustomId, 'welcome', 'request', 'modal')) {
                                         await services.policy.handleZoneRequestModal(interaction);
                                         return;
                                 }
-                                if (id.startsWith('panel:policy:profile:modal:')) {
+                                if (matchId(parsedCustomId, 'panel', 'policy', 'profile', 'modal')) {
                                         await services.policy.handleProfileModal(interaction);
                                         return;
                                 }
-                                if (id.startsWith('welcome:')) {
+                                if (parsedCustomId?.namespace === 'welcome') {
                                         await services.welcome.handleModal(interaction);
                                         return;
                                 }
-                                if (id.startsWith('panel:')) {
+                                if (parsedCustomId?.namespace === 'panel') {
                                         await services.panel.handleModal(interaction);
                                         return;
                                 }
