@@ -147,3 +147,76 @@ channels_msg_id VARCHAR(32) NULL,
 policy_msg_id VARCHAR(32) NULL,
 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE temp_groups
+ADD COLUMN IF NOT EXISTS text_channel_id VARCHAR(32) NULL,
+ADD COLUMN IF NOT EXISTS voice_channel_id VARCHAR(32) NULL,
+ADD COLUMN IF NOT EXISTS panel_message_id VARCHAR(32) NULL,
+ADD COLUMN IF NOT EXISTS is_open BOOLEAN NOT NULL DEFAULT TRUE,
+ADD COLUMN IF NOT EXISTS last_activity_at DATETIME NULL,
+ADD COLUMN IF NOT EXISTS frozen_until DATETIME NULL;
+
+ALTER TABLE temp_group_members
+ADD COLUMN IF NOT EXISTS role ENUM('member','spectator') NOT NULL DEFAULT 'member';
+
+CREATE TABLE IF NOT EXISTS temp_group_freeze_votes (
+temp_group_id BIGINT UNSIGNED NOT NULL,
+user_id VARCHAR(32) NOT NULL,
+action ENUM('remove','keep') NOT NULL,
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+PRIMARY KEY(temp_group_id, user_id),
+FOREIGN KEY(temp_group_id) REFERENCES temp_groups(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE settings
+ADD COLUMN IF NOT EXISTS staff_announcements_channel_id VARCHAR(32) NULL,
+ADD COLUMN IF NOT EXISTS requests_channel_id VARCHAR(32) NULL,
+ADD COLUMN IF NOT EXISTS events_admin_channel_id VARCHAR(32) NULL,
+ADD COLUMN IF NOT EXISTS anon_threshold INT NOT NULL DEFAULT 10;
+
+ALTER TABLE events
+ADD COLUMN IF NOT EXISTS author_id VARCHAR(32) NULL,
+ADD COLUMN IF NOT EXISTS game VARCHAR(120) NULL,
+ADD COLUMN IF NOT EXISTS description TEXT NULL,
+ADD COLUMN IF NOT EXISTS max_participants INT UNSIGNED NULL,
+ADD COLUMN IF NOT EXISTS temp_group_id BIGINT UNSIGNED NULL,
+ADD COLUMN IF NOT EXISTS scheduled_at DATETIME NULL,
+ADD COLUMN IF NOT EXISTS announce_payload JSON NULL;
+
+SET @fk_events_temp_group_id := (
+SELECT CONSTRAINT_NAME
+FROM information_schema.REFERENTIAL_CONSTRAINTS
+WHERE CONSTRAINT_SCHEMA = DATABASE()
+AND TABLE_NAME = 'events'
+AND REFERENCED_TABLE_NAME = 'temp_groups'
+);
+SET @ddl_events_temp_group_id := IF(
+@fk_events_temp_group_id IS NULL,
+'ALTER TABLE events ADD CONSTRAINT fk_events_temp_group_id FOREIGN KEY (temp_group_id) REFERENCES temp_groups(id) ON DELETE SET NULL',
+'SELECT 1'
+);
+PREPARE stmt FROM @ddl_events_temp_group_id;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+CREATE TABLE IF NOT EXISTS event_questions (
+id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+event_id BIGINT UNSIGNED NOT NULL,
+from_user_id VARCHAR(32) NOT NULL,
+to_user_id VARCHAR(32) NOT NULL,
+question TEXT NOT NULL,
+answer TEXT NULL,
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- Compteur global par salon anonyme et par jour
+CREATE TABLE IF NOT EXISTS anon_channel_daily_counts (
+	guild_id VARCHAR(32) NOT NULL,
+	channel_id VARCHAR(32) NOT NULL,
+	day DATE NOT NULL,
+	count INT NOT NULL DEFAULT 0,
+	next_target INT NOT NULL DEFAULT 10,
+	PRIMARY KEY (guild_id, channel_id, day)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

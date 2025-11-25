@@ -8,23 +8,92 @@ const {
 	TextInputBuilder,
 	TextInputStyle,
 	ChannelType,
-        PermissionFlagsBits,
-        MessageFlags
+	PermissionFlagsBits,
+	MessageFlags
 } = require('discord.js');
 
 class PanelService {
 	#schemaReady = false;
-        constructor(client, db, logger = null, services = null) {
-                this.client = client;
-                this.db = db;
-                this.logger = logger;
-                this.services = services || null;
-                this.activity = services?.activity || null;
-        }
+	constructor(client, db, logger = null, services = null) {
+		this.client = client;
+		this.db = db;
+		this.logger = logger;
+		this.services = services || null;
+		this.activity = services?.activity || null;
+	}
 
-        setServices(services) {
-                this.services = services || null;
-                this.activity = services?.activity || null;
+	async ensureStaffAnnouncementsPanel(client = null) {
+		const effectiveClient = client || this.client;
+		if (!effectiveClient?.guilds) return;
+
+		const guilds = effectiveClient.guilds.cache?.size
+			? effectiveClient.guilds.cache.values()
+			: (await effectiveClient.guilds.fetch()).values();
+
+		for (const guild of guilds) {
+			let channelId = null;
+			try {
+				const [rows] = await this.db.query(
+					'SELECT staff_announcements_channel_id FROM settings WHERE guild_id = ? LIMIT 1',
+					[guild.id]
+				);
+				channelId = rows?.[0]?.staff_announcements_channel_id || process.env.STAFF_ANNOUNCEMENTS_CHANNEL_ID || null;
+			} catch (err) {
+				this.logger?.warn?.({ err, guildId: guild.id }, 'Impossible de lire la configuration staff');
+				continue;
+			}
+
+			if (!channelId) continue;
+
+			const channel = await effectiveClient.channels.fetch(String(channelId)).catch(() => null);
+			if (!channel) {
+				this.logger?.warn?.({ guildId: guild.id, channelId }, 'Salon staff introuvable');
+				continue;
+			}
+
+			const row = new ActionRowBuilder().addComponents(
+				new ButtonBuilder().setCustomId('ann:openModal').setLabel('Créer une annonce').setStyle(ButtonStyle.Primary),
+				new ButtonBuilder().setCustomId('evt:openModal').setLabel('Créer un événement').setStyle(ButtonStyle.Success)
+			);
+
+			const payload = {
+				content: 'Panneau staff — créer une annonce ou un événement',
+				components: [row]
+			};
+
+			let targetMessage = null;
+			try {
+				const messages = await channel.messages.fetch({ limit: 20 }).catch(() => null);
+				if (messages) {
+					for (const message of messages.values()) {
+						if (message.author?.id !== effectiveClient.user?.id) continue;
+						const ids = new Set();
+						for (const actionRow of message.components || []) {
+							for (const component of actionRow.components || []) {
+								if (component.customId) ids.add(component.customId);
+							}
+						}
+						if (ids.has('ann:openModal') && ids.has('evt:openModal')) {
+							targetMessage = message;
+							break;
+						}
+					}
+				}
+			} catch (err) {
+				this.logger?.warn?.({ err, guildId: guild.id }, 'Recherche du panneau staff échouée');
+			}
+
+			if (targetMessage) {
+				await targetMessage.edit(payload).catch(() => {});
+			} else {
+				await channel.send(payload).catch(() => {});
+			}
+		}
+	}
+
+	setServices(services) {
+		this.services = services || null;
+		this.activity = services?.activity || null;
         }
 
 	async renderInitialPanel({ zone }) {

@@ -1,13 +1,14 @@
 const {
-        ActionRowBuilder,
-        ButtonBuilder,
-        ButtonStyle,
-        EmbedBuilder,
-        MessageFlags,
-        ModalBuilder,
-        TextInputBuilder,
-        TextInputStyle
+	ActionRowBuilder,
+	ButtonBuilder,
+	ButtonStyle,
+	EmbedBuilder,
+	MessageFlags,
+	ModalBuilder,
+	TextInputBuilder,
+	TextInputStyle
 } = require('discord.js');
+const { ensureFallback } = require('../utils/channels');
 
 class WelcomeService {
         constructor(client, db, logger, services = {}) {
@@ -18,24 +19,37 @@ class WelcomeService {
                 this.pageSize = 3;
         }
 
-        async sendWizardToUser(target, options = {}) {
-                const payload = this.#buildWizardPayload();
-                if (options.mentionId) {
-                        payload.content = `<@${options.mentionId}>`;
-                }
+	async sendWizardToUser(target, options = {}) {
+		const payload = this.#buildWizardPayload();
+		const mentionId = options.mentionId || (target?.id && target?.guild ? target.id : null);
+		if (mentionId) {
+			payload.content = `<@${mentionId}>`;
+		}
 
-                if (typeof target?.send === 'function') {
-                        return target.send(payload);
-                }
+		const guild = target?.guild || null;
+		if (guild?.id) {
+			try {
+				const channel = await ensureFallback(guild, 'welcome');
+				if (channel && typeof channel.send === 'function') {
+					return await channel.send(payload);
+				}
+			} catch (err) {
+				this.logger?.warn({ err, guildId: guild.id }, 'Failed to send welcome panel to fallback channel');
+			}
+		}
 
-                if (target?.user && typeof target.user.send === 'function') {
-                        return target.user.send(payload);
-                }
+		if (typeof target?.send === 'function') {
+			return target.send(payload);
+		}
 
-                throw new Error('Invalid welcome target');
-        }
+		if (target?.user && typeof target.user.send === 'function') {
+			return target.user.send(payload);
+		}
 
-        async handleButton(interaction) {
+		throw new Error('Invalid welcome target');
+	}
+
+	async handleButton(interaction) {
                 const id = interaction.customId || '';
 
                 if (id === 'welcome:browse') {
