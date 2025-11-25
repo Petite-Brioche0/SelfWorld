@@ -15,6 +15,15 @@ module.exports = {
 			});
 		}
 
+		const tempGroup = services.tempGroup;
+		if (tempGroup?.setLastActivityByChannel) {
+			try {
+				await tempGroup.setLastActivityByChannel(message.channelId);
+			} catch (error) {
+				logger?.warn({ err: error, channelId: message.channelId }, 'Mise à jour de dernière activité du groupe échouée');
+			}
+		}
+
 		const zoneService = services.zone;
 		const activityService = services.activity;
 		if (!zoneService?.resolveZoneContextForChannel || !activityService?.addMessage) {
