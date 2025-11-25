@@ -210,40 +210,44 @@ module.exports = {
                                 }
                         }
 
-                        if (interaction.isButton()) {
-                                if (parsedCustomId?.namespace === 'welcome') {
-                                        await services.welcome.handleButton(interaction);
-                                        return;
-                                }
-                                if (matchId(parsedCustomId, 'panel', 'policy', 'profile')) {
-                                        await services.policy.handleProfileButton(interaction);
-                                        return;
-                                }
-                                if (matchId(parsedCustomId, 'panel', 'policy', 'code', 'gen')) {
-                                        await services.policy.handleGenerateCode(interaction);
-                                        return;
-                                }
-                                if (matchId(parsedCustomId, 'zone', 'approve') || matchId(parsedCustomId, 'zone', 'reject')) {
-                                        await services.policy.handleApprovalButton(interaction);
-                                        return;
-                                }
-                                if (parsedCustomId?.namespace === 'req') {
-                                        await services.policy.handleCreationRequestButton(interaction);
-                                        return;
-                                }
-                                if (matchId(parsedCustomId, 'temp', 'extend') || matchId(parsedCustomId, 'temp', 'delete')) {
-                                        await services.tempGroup.handleArchiveButtons(interaction);
-                                        return;
-                                }
-                                if (matchId(parsedCustomId, 'event', 'join')) {
-                                        await services.event.handleJoinButton(interaction);
-                                        return;
-                                }
-                                if (parsedCustomId?.namespace === 'panel') {
-                                        await services.panel.handleButton(interaction);
-                                        return;
-                                }
-                        }
+			if (interaction.isButton()) {
+				if (parsedCustomId?.namespace === 'welcome') {
+					await services.welcome.handleButton(interaction);
+					return;
+				}
+				if (matchId(parsedCustomId, 'temp', 'vote')) {
+					await services.tempGroup.handleVoteButton(interaction);
+					return;
+				}
+				if (matchId(parsedCustomId, 'panel', 'policy', 'profile')) {
+					await services.policy.handleProfileButton(interaction);
+					return;
+				}
+				if (matchId(parsedCustomId, 'panel', 'policy', 'code', 'gen')) {
+					await services.policy.handleGenerateCode(interaction);
+					return;
+				}
+				if (matchId(parsedCustomId, 'zone', 'approve') || matchId(parsedCustomId, 'zone', 'reject')) {
+					await services.policy.handleApprovalButton(interaction);
+					return;
+				}
+				if (parsedCustomId?.namespace === 'req') {
+					await services.policy.handleCreationRequestButton(interaction);
+					return;
+				}
+				if (matchId(parsedCustomId, 'temp', 'extend') || matchId(parsedCustomId, 'temp', 'delete')) {
+					await services.tempGroup.handleArchiveButtons(interaction);
+					return;
+				}
+				if (matchId(parsedCustomId, 'event', 'join')) {
+					await services.event.handleJoinButton(interaction);
+					return;
+				}
+				if (parsedCustomId?.namespace === 'panel') {
+					await services.panel.handleButton(interaction);
+					return;
+				}
+			}
 
                         if (interaction.type === InteractionType.ModalSubmit) {
                                 if (matchId(parsedCustomId, 'req', 'editaccept')) {

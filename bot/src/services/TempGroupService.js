@@ -217,6 +217,55 @@ class TempGroupService {
 		return true;
 	}
 
+	async freezeIfInactive(hours = 72) {
+		const delay = Number.isFinite(hours) ? Math.max(1, Number(hours)) : 72;
+		const [groups] = await this.db.query(
+			`SELECT id, text_channel_id
+			FROM temp_groups
+			WHERE archived = 0
+			AND (frozen_until IS NULL OR frozen_until <= UTC_TIMESTAMP())
+			AND last_activity_at IS NOT NULL
+			AND last_activity_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? HOUR)`,
+			[delay]
+		);
+		for (const group of groups) {
+			await this.#freezeGroup(group, delay).catch((error) => {
+				this.logger?.warn?.({ err: error, tempGroupId: group.id }, 'Gel automatique du groupe impossible');
+			});
+		}
+	}
+
+	async enforceFreezePolicy(hours = 72) {
+		try {
+			await this.freezeIfInactive(hours);
+		} catch (error) {
+			this.logger?.warn?.({ err: error }, 'Application du gel automatique échouée');
+		}
+		const [rows] = await this.db.query(
+			`SELECT id FROM temp_groups
+			WHERE archived = 0
+			AND frozen_until IS NOT NULL
+			AND frozen_until <= UTC_TIMESTAMP()`
+		);
+		for (const row of rows) {
+			await this.#unfreezeGroup(row.id).catch((error) => {
+				this.logger?.warn?.({ err: error, tempGroupId: row.id }, 'Fin de gel impossible');
+			});
+		}
+	}
+
+	async cleanupFreezeVotes() {
+		await this.db
+			.query(
+				`DELETE v FROM temp_group_freeze_votes v
+				LEFT JOIN temp_groups g ON g.id = v.temp_group_id
+				WHERE g.id IS NULL OR g.archived = 1`
+			)
+			.catch((error) => {
+				this.logger?.warn?.({ err: error }, 'Nettoyage des votes de gel impossible');
+			});
+	}
+
 	async addMembers(tempGroupId, userIds = []) {
 		const group = await this.#getGroup(tempGroupId);
 		if (!group) return;
@@ -317,6 +366,150 @@ class TempGroupService {
 		});
 	}
 
+	async handleVoteButton(interaction) {
+		if (!interaction?.customId) return;
+		const parsed = parseId(interaction.customId);
+		if (!parsed || parsed.namespace !== 'temp' || parsed.parts?.[0] !== 'vote') return;
+		const action = parsed.parts?.[1];
+		const idPart = parsed.parts?.[2];
+		const tempGroupId = Number(idPart);
+		if (!tempGroupId) {
+			await interaction
+				.reply({ content: 'Groupe introuvable.', flags: MessageFlags.Ephemeral })
+				.catch(() => {});
+			return;
+		}
+		const result = await this.handleVote(tempGroupId, interaction.user?.id, action);
+		switch (result.status) {
+			case 'archived':
+				await interaction
+					.reply({ content: 'Le groupe a été archivé.', flags: MessageFlags.Ephemeral })
+					.catch(() => {});
+				break;
+			case 'unfrozen':
+				await interaction
+					.reply({ content: 'Merci, le groupe est dégelé.', flags: MessageFlags.Ephemeral })
+					.catch(() => {});
+				break;
+			case 'recorded':
+				await interaction
+					.reply({ content: 'Ton vote est enregistré.', flags: MessageFlags.Ephemeral })
+					.catch(() => {});
+				break;
+			case 'not_member':
+				await interaction
+					.reply({ content: 'Seuls les participants peuvent voter.', flags: MessageFlags.Ephemeral })
+					.catch(() => {});
+				break;
+			case 'not_frozen':
+				await interaction
+					.reply({ content: 'Ce groupe n’est plus gelé.', flags: MessageFlags.Ephemeral })
+					.catch(() => {});
+				break;
+			default:
+				await interaction
+					.reply({ content: 'Action indisponible.', flags: MessageFlags.Ephemeral })
+					.catch(() => {});
+		}
+	}
+
+	async handleVote(tempGroupId, userId, action) {
+		if (!tempGroupId || !userId) {
+			return { status: 'invalid' };
+		}
+		const normalizedAction = action === 'remove' || action === 'keep' ? action : null;
+		if (!normalizedAction) {
+			return { status: 'invalid_action' };
+		}
+		const group = await this.#getGroup(tempGroupId);
+		if (!group || group.archived) {
+			return { status: 'not_found' };
+		}
+		const frozenUntil = group.frozen_until ? new Date(group.frozen_until) : null;
+		if (!frozenUntil || frozenUntil.getTime() <= Date.now()) {
+			return { status: 'not_frozen' };
+		}
+		const [memberRows] = await this.db.query(
+			'SELECT role FROM temp_group_members WHERE temp_group_id = ? AND user_id = ? LIMIT 1',
+			[tempGroupId, String(userId)]
+		);
+		if (!memberRows.length) {
+			return { status: 'not_member' };
+		}
+		await this.db.query(
+			`INSERT INTO temp_group_freeze_votes (temp_group_id, user_id, action, created_at)
+			VALUES (?, ?, ?, UTC_TIMESTAMP())
+			ON DUPLICATE KEY UPDATE action = VALUES(action), created_at = UTC_TIMESTAMP()`,
+			[tempGroupId, String(userId), normalizedAction]
+		);
+		if (normalizedAction === 'remove') {
+			const [voteRows] = await this.db.query(
+				`SELECT COUNT(*) AS total FROM temp_group_freeze_votes
+				WHERE temp_group_id = ? AND action = 'remove'`,
+				[tempGroupId]
+			);
+			const removeCount = Number(voteRows?.[0]?.total || 0);
+			const isAuthor = group.author_id && String(group.author_id) === String(userId);
+			if (isAuthor || removeCount >= 3) {
+				await this.archiveGroup(tempGroupId);
+				await this.#cleanupFreezeVotesFor(tempGroupId);
+				return { status: 'archived' };
+			}
+			return { status: 'recorded', votes: removeCount };
+		}
+		await this.#unfreezeGroup(tempGroupId);
+		await this.#cleanupFreezeVotesFor(tempGroupId);
+		return { status: 'unfrozen' };
+	}
+
+	async archiveGroup(tempGroupId) {
+		const group = await this.#getGroup(tempGroupId);
+		if (!group) return { ok: false, reason: 'not_found' };
+		if (group.archived) {
+			await this.#cleanupFreezeVotesFor(tempGroupId).catch(() => {});
+			return { ok: true, already: true };
+		}
+		const textChannel = await this.#fetchChannel(group.text_channel_id);
+		if (textChannel) {
+			const [members] = await this.db.query(
+				'SELECT user_id, role FROM temp_group_members WHERE temp_group_id = ?',
+				[tempGroupId]
+			);
+			for (const member of members) {
+				await textChannel.permissionOverwrites
+					.edit(String(member.user_id), {
+						ViewChannel: true,
+						SendMessages: false,
+						ReadMessageHistory: true
+					})
+					.catch(() => {});
+			}
+		}
+		const voiceChannel = await this.#fetchChannel(group.voice_channel_id);
+		if (voiceChannel) {
+			const [members] = await this.db.query(
+				"SELECT user_id FROM temp_group_members WHERE temp_group_id = ? AND role = 'member'",
+				[tempGroupId]
+			);
+			for (const member of members) {
+				await voiceChannel.permissionOverwrites
+					.edit(String(member.user_id), {
+						ViewChannel: true,
+						Connect: false,
+						Speak: false
+					})
+					.catch(() => {});
+			}
+		}
+		await this.db.query('UPDATE temp_groups SET archived = 1, is_open = 0, frozen_until = NULL WHERE id = ?', [tempGroupId]);
+		await this.#cleanupFreezeVotesFor(tempGroupId).catch(() => {});
+		await this.updatePanel(tempGroupId).catch((error) => {
+			this.logger?.warn?.({ err: error, tempGroupId }, 'Rafraîchissement du panel après archivage impossible');
+		});
+		return { ok: true };
+	}
+
+
 	async handleArchiveButtons(interaction) {
 		if (!interaction?.customId) return;
 		const parsed = parseId(interaction.customId);
@@ -396,6 +589,7 @@ class TempGroupService {
 			} catch (error) {
 				this.logger?.warn?.({ err: error, tempGroupId: group.id }, 'Mise à jour du panel après archivage échouée');
 			}
+			await this.#cleanupFreezeVotesFor(group.id).catch(() => {});
 		}
 	}
 
@@ -505,6 +699,72 @@ Dernière activité : ${lastActivity}`)
 		return rows?.[0] || null;
 	}
 
+	async #freezeGroup(group, delay) {
+		if (!group) return;
+		const textChannel = await this.#fetchChannel(group.text_channel_id);
+		if (textChannel) {
+			const [members] = await this.db.query(
+				'SELECT user_id, role FROM temp_group_members WHERE temp_group_id = ?',
+				[group.id]
+			);
+			for (const member of members) {
+				if (member.role !== 'member') continue;
+				await textChannel.permissionOverwrites
+					.edit(String(member.user_id), {
+						ViewChannel: true,
+						SendMessages: false,
+						ReadMessageHistory: true
+					})
+					.catch(() => {});
+			}
+		}
+		await this.db.query('UPDATE temp_groups SET frozen_until = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 DAY) WHERE id = ?', [group.id]);
+		if (textChannel) {
+			const removeButton = new ButtonBuilder()
+				.setCustomId(makeId('temp:vote', 'remove', group.id))
+				.setLabel('Supprimer')
+				.setStyle(ButtonStyle.Danger);
+			const keepButton = new ButtonBuilder()
+				.setCustomId(makeId('temp:vote', 'keep', group.id))
+				.setLabel('Conserver')
+				.setStyle(ButtonStyle.Success);
+			await textChannel
+				.send({
+					content: `⏸️ Ce groupe est inactif depuis ${delay}h. Votez pour le conserver ou le fermer.`,
+					components: [new ActionRowBuilder().addComponents(removeButton, keepButton)]
+				})
+				.catch(() => {});
+		}
+		await this.updatePanel(group.id).catch(() => {});
+	}
+
+	async #unfreezeGroup(tempGroupId) {
+		const group = await this.#getGroup(tempGroupId);
+		if (!group) return;
+		await this.db.query('UPDATE temp_groups SET frozen_until = NULL WHERE id = ?', [tempGroupId]);
+		const textChannel = await this.#fetchChannel(group.text_channel_id);
+		if (textChannel) {
+			const [members] = await this.db.query(
+				'SELECT user_id, role FROM temp_group_members WHERE temp_group_id = ?',
+				[tempGroupId]
+			);
+			for (const member of members) {
+				if (member.role !== 'member') continue;
+				await textChannel.permissionOverwrites
+					.edit(String(member.user_id), {
+						ViewChannel: true,
+						SendMessages: true,
+						ReadMessageHistory: true
+					})
+					.catch(() => {});
+			}
+		}
+		await this.updatePanel(tempGroupId).catch(() => {});
+	}
+
+	async #cleanupFreezeVotesFor(tempGroupId) {
+		await this.db.query('DELETE FROM temp_group_freeze_votes WHERE temp_group_id = ?', [tempGroupId]);
+	}
 	async #fetchChannel(channelId) {
 		if (!channelId) return null;
 		return this.client.channels.fetch(channelId).catch(() => null);
