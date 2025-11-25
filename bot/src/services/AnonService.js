@@ -99,72 +99,122 @@ class AnonService {
 	}
 
         async handleMessage(message) {
-        if (!message || !message.guild || message.author.bot) return;
-	
-	const zoneId = await this.#findZoneByAnonChannel(message.channelId);
-	if (!zoneId) return; // not an anon channel
-	
-	const zoneRow = await this.#getZone(zoneId);
-	const zoneColor = await this.#resolveZoneColor(zoneRow);
-	const sanitized = this.#sanitize(message.content || '');
-	const logContent = sanitized || '(aucun texte)';
-	const files = message.attachments?.size
-	? [...message.attachments.values()].map((a) => a.url)
-	: [];
-	
-	await this.db.query(
-	'INSERT INTO anon_logs (guild_id, source_zone_id, author_id, content, created_at) VALUES (?, ?, ?, ?, NOW())',
-	[message.guild.id, zoneId, message.author.id, sanitized]
-	).catch(() => {});
-	
-	// Log raw to admin
-	const adminChannelId = await this.#getAnonAdminChannelId(message.guild.id);
-	if (adminChannelId) {
-	const adminCh = await this.client.channels.fetch(adminChannelId).catch(()=>null);
-	if (adminCh) {
-	const embed = new EmbedBuilder()
-	.setTitle('Anon log')
-	.setColor(zoneColor)
-	.setThumbnail(message.author.displayAvatarURL({ size: 128 }))
-	.addFields(
-	{ name: 'Zone', value: zoneRow ? `${zoneRow.name} (#${zoneRow.id})` : `Zone ${zoneId}` },
-	{ name: 'Auteur', value: `${message.author.tag} (${message.author.id})` },
+		if (!message || !message.guild || message.author.bot) return;
 
-	)
-	.setTimestamp(message.createdAt || new Date());
-	if (files.length) {
-	embed.addFields({ name: 'Pièces jointes', value: `${files.length}` });
-	}
-	await adminCh.send({ content: logContent, allowedMentions: { parse: [] } }).catch(()=>{});
-	await adminCh.send({ embeds: [embed], files, allowedMentions: { parse: [] } }).catch(()=>{});
-	}
-	}
-	
-	// Delete original
-	await message.delete().catch(()=>{});
-	
-	// Fan-out
-	const targets = await this.#allTargets();
-	
-        for (const row of targets) {
-        if (!row || !row.source_channel_id) continue;
-        const hooked = await this.#ensureWebhook(row);
-        if (!hooked || hooked._webhookDisabled) continue;
-        if (!hooked.webhook_id || !hooked.webhook_token) continue;
+		const zoneId = await this.#findZoneByAnonChannel(message.channelId);
+		if (!zoneId) return false; // not an anon channel
 
-        const hook = new WebhookClient({ id: hooked.webhook_id, token: hooked.webhook_token });
-        const name = this.#buildAnonName(message.author.id, row.zone_id);
+		const zoneRow = await this.#getZone(zoneId);
+		const zoneColor = await this.#resolveZoneColor(zoneRow);
+		const sanitized = this.#sanitize(message.content || '');
+		const logContent = sanitized || '(aucun texte)';
+		const files = message.attachments?.size
+			? [...message.attachments.values()].map((a) => a.url)
+			: [];
 
-        await hook.send({
-        username: name,
-        content: sanitized.length ? sanitized : undefined,
-        files,
-        allowedMentions: { parse: [] }
-        }).catch((err) => {
-        this.logger?.warn?.({ err, zoneId: row.zone_id }, 'Failed to relay anonymous message');
-        });
-        }
-                }
+		await this.db.query(
+			'INSERT INTO anon_logs (guild_id, source_zone_id, author_id, content, created_at) VALUES (?, ?, ?, ?, NOW())',
+			[message.guild.id, zoneId, message.author.id, sanitized]
+		).catch(() => {});
+
+		const adminChannelId = await this.#getAnonAdminChannelId(message.guild.id);
+		if (adminChannelId) {
+			const adminCh = await this.client.channels.fetch(adminChannelId).catch(() => null);
+			if (adminCh) {
+				const embed = new EmbedBuilder()
+					.setTitle('Anon log')
+					.setColor(zoneColor)
+					.setThumbnail(message.author.displayAvatarURL({ size: 128 }))
+					.addFields(
+						{ name: 'Zone', value: zoneRow ? `${zoneRow.name} (#${zoneRow.id})` : `Zone ${zoneId}` },
+						{ name: 'Auteur', value: `${message.author.tag} (${message.author.id})` }
+					)
+					.setTimestamp(message.createdAt || new Date());
+
+				if (files.length) {
+					embed.addFields({ name: 'Pièces jointes', value: `${files.length}` });
+				}
+
+				await adminCh.send({ content: logContent, allowedMentions: { parse: [] } }).catch(() => {});
+				await adminCh.send({ embeds: [embed], files, allowedMentions: { parse: [] } }).catch(() => {});
+			}
+		}
+
+		await message.delete().catch(() => {});
+
+		const targets = await this.#allTargets();
+
+		for (const row of targets) {
+			if (!row || !row.source_channel_id) continue;
+			const hooked = await this.#ensureWebhook(row);
+			if (!hooked || hooked._webhookDisabled) continue;
+			if (!hooked.webhook_id || !hooked.webhook_token) continue;
+
+			const hook = new WebhookClient({ id: hooked.webhook_id, token: hooked.webhook_token });
+			const name = this.#buildAnonName(message.author.id, row.zone_id);
+
+			await hook.send({
+				username: name,
+				content: sanitized.length ? sanitized : undefined,
+				files,
+				allowedMentions: { parse: [] }
+			}).catch((err) => {
+				this.logger?.warn?.({ err, zoneId: row.zone_id }, 'Failed to relay anonymous message');
+			});
+		}
+
+		return true;
+	}
+	async bumpAnonChannelCounter({ guildId, channelId, now = new Date() }) {
+		if (!guildId || !channelId) {
+			return { notify: false };
+		}
+
+		const baseDate = Number.isNaN(new Date(now).getTime()) ? new Date() : new Date(now);
+		const isoDay = new Date(Date.UTC(baseDate.getUTCFullYear(), baseDate.getUTCMonth(), baseDate.getUTCDate()))
+			.toISOString()
+			.slice(0, 10);
+
+		const connection = await this.db.getConnection();
+		try {
+			await connection.beginTransaction();
+			await connection.query(
+				'INSERT INTO anon_channel_daily_counts (guild_id, channel_id, day, count, next_target) VALUES (?, ?, ?, 0, 10) ON DUPLICATE KEY UPDATE count = count',
+				[guildId, channelId, isoDay]
+			);
+
+			const [rows] = await connection.query(
+				'SELECT count, next_target FROM anon_channel_daily_counts WHERE guild_id = ? AND channel_id = ? AND day = ? FOR UPDATE',
+				[guildId, channelId, isoDay]
+			);
+			if (!rows || !rows.length) {
+				await connection.commit();
+				return { notify: false };
+			}
+
+			const current = rows[0];
+			const newCount = current.count + 1;
+			let nextTarget = current.next_target;
+			let notify = false;
+			if (newCount >= current.next_target) {
+				notify = true;
+				nextTarget = current.next_target + 100;
+			}
+
+			await connection.query(
+				'UPDATE anon_channel_daily_counts SET count = ?, next_target = ? WHERE guild_id = ? AND channel_id = ? AND day = ?',
+				[newCount, nextTarget, guildId, channelId, isoDay]
+			);
+
+			await connection.commit();
+			return notify ? { notify: true, count: newCount, nextTarget } : { notify: false };
+		} catch (error) {
+			await connection.rollback();
+			throw error;
+		} finally {
+			connection.release();
+		}
+	}
 
         async presentOptions(interaction, { message = null } = {}) {
                 const baseText = [

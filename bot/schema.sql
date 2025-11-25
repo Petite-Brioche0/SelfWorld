@@ -210,3 +210,13 @@ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+
+-- Compteur global par salon anonyme et par jour
+CREATE TABLE IF NOT EXISTS anon_channel_daily_counts (
+	guild_id VARCHAR(32) NOT NULL,
+	channel_id VARCHAR(32) NOT NULL,
+	day DATE NOT NULL,
+	count INT NOT NULL DEFAULT 0,
+	next_target INT NOT NULL DEFAULT 10,
+	PRIMARY KEY (guild_id, channel_id, day)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

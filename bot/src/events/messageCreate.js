@@ -1,3 +1,5 @@
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+
 module.exports = {
 	name: 'messageCreate',
 	async execute(message, client) {
@@ -9,10 +11,43 @@ module.exports = {
 		const logger = client.context.logger;
 
 		const anon = services.anon;
+		let handledAnon = false;
 		if (anon?.handleMessage) {
-			await anon.handleMessage(message).catch((error) => {
+			try {
+				handledAnon = await anon.handleMessage(message);
+			} catch (error) {
 				logger?.error({ err: error, messageId: message.id }, 'Anon relay failure');
-			});
+			}
+		}
+
+		if (handledAnon && anon?.bumpAnonChannelCounter) {
+			try {
+				const res = await anon.bumpAnonChannelCounter({
+					guildId: message.guild.id,
+					channelId: message.channel.id
+				});
+				if (res?.notify) {
+					const row = new ActionRowBuilder().addComponents(
+						new ButtonBuilder()
+							.setCustomId('anon:create:closed')
+							.setLabel('Créer (fermé)')
+							.setStyle(ButtonStyle.Primary),
+						new ButtonBuilder()
+							.setCustomId('anon:create:open')
+							.setLabel('Créer (ouvert)')
+							.setStyle(ButtonStyle.Secondary)
+					);
+					const content = `💬 Activité anonyme : palier atteint (**${res.count}** messages).\nVous pouvez créer un **groupe temporaire** pour regrouper les intéressés.`;
+					await message.channel.send({
+						content,
+						components: [row]
+					}).catch((error) => {
+						logger?.warn({ err: error, channelId: message.channel.id }, 'Annonce de palier anonyme impossible');
+					});
+				}
+			} catch (error) {
+				logger?.warn({ err: error, channelId: message.channel.id }, 'Compteur de messages anonymes indisponible');
+			}
 		}
 
 		const tempGroup = services.tempGroup;
