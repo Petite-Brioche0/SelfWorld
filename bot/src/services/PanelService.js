@@ -2,31 +2,35 @@ const {
 EmbedBuilder,
 ActionRowBuilder,
 ButtonBuilder,
-	ButtonStyle,
-	StringSelectMenuBuilder,
-	ModalBuilder,
-	TextInputBuilder,
-	TextInputStyle,
-	ChannelType,
+ButtonStyle,
+StringSelectMenuBuilder,
+ModalBuilder,
+TextInputBuilder,
+TextInputStyle,
+ChannelType,
 PermissionFlagsBits,
 MessageFlags
 } = require('discord.js');
-const { parseId } = require('../utils/ids');
+const { parseId, makeId } = require('../utils/ids');
 
 class PanelService {
 	#schemaReady = false;
-        constructor(client, db, logger = null, services = null) {
-                this.client = client;
-                this.db = db;
-                this.logger = logger;
-                this.services = services || null;
-                this.activity = services?.activity || null;
-        }
+	constructor(client, db, logger = null, services = null) {
+		this.client = client;
+		this.db = db;
+		this.logger = logger;
+		this.services = services || null;
+		this.activity = services?.activity || null;
+	}
 
-        setServices(services) {
-                this.services = services || null;
-                this.activity = services?.activity || null;
-        }
+	setServices(services) {
+		this.services = services || null;
+		this.activity = services?.activity || null;
+	}
+
+	#panelId(...parts) {
+		return makeId('panel', ...parts);
+	}
 
 	async renderInitialPanel({ zone }) {
 		if (!zone?.id) return;
@@ -160,33 +164,35 @@ class PanelService {
 
                 const row = new ActionRowBuilder().addComponents(
                         new ButtonBuilder()
-                                .setCustomId('welcome:browse')
+                                .setCustomId(makeId('welcome', 'browse'))
                                 .setLabel('Découvrir les zones')
                                 .setStyle(ButtonStyle.Primary),
                         new ButtonBuilder()
-                                .setCustomId('welcome:joincode')
+                                .setCustomId(makeId('welcome', 'joincode'))
                                 .setLabel('Rejoindre via un code')
                                 .setStyle(ButtonStyle.Secondary),
                         new ButtonBuilder()
-                                .setCustomId('welcome:request')
+                                .setCustomId(makeId('welcome', 'request'))
                                 .setLabel('Demander une zone')
                                 .setStyle(ButtonStyle.Secondary)
                 );
 
-                const existingId = await this.#getPanelMessageId(zoneRow.id, 'reception_welcome');
-                let msg = null;
-                if (existingId) {
-                        msg = await recep.messages.fetch(existingId).catch(() => null);
-                        if (msg) {
-                                await msg.edit({ content: anchorText, embeds: [embed], components: [row] }).catch(() => {});
-                                await msg.pin().catch(() => {});
-                        }
-                }
+const existingId = await this.#getPanelMessageId(zoneRow.id, 'reception_welcome');
+let msg = null;
+if (existingId) {
+msg = await recep.messages.fetch(existingId).catch((err) => { this.logger?.warn({ err }, 'Panel action failed'); return null; });
+if (msg) {
+await msg
+.edit({ content: anchorText, embeds: [embed], components: [row] })
+.catch((err) => this.logger?.warn({ err, messageId: msg.id }, 'Failed to edit reception welcome message'));
+await msg.pin().catch((err) => this.logger?.warn({ err, messageId: msg.id }, 'Failed to pin reception welcome'));
+}
+}
 
-                if (!msg) {
-                        msg = await recep.send({ content: anchorText, embeds: [embed], components: [row] });
-                        await msg.pin().catch(() => {});
-                }
+if (!msg) {
+msg = await recep.send({ content: anchorText, embeds: [embed], components: [row] });
+await msg.pin().catch((err) => this.logger?.warn({ err, messageId: msg.id }, 'Failed to pin reception welcome'));
+}
 
                 if (msg) {
                         await this.#setPanelMessageId(zoneRow.id, 'reception_welcome', msg.id);
@@ -211,7 +217,7 @@ class PanelService {
 
                 const row = new ActionRowBuilder().addComponents(
                         new ButtonBuilder()
-                                .setCustomId(`panel:refresh:${zoneRow.id}`)
+                                .setCustomId(this.#panelId('refresh', zoneRow.id))
                                 .setLabel('🔄 Actualiser maintenant')
                                 .setStyle(ButtonStyle.Secondary)
                 );
@@ -246,7 +252,7 @@ class PanelService {
 		}
 
                 const select = new StringSelectMenuBuilder()
-                        .setCustomId(`panel:member:select:${zoneRow.id}`)
+                        .setCustomId(this.#panelId('member', 'select', zoneRow.id))
                         .setPlaceholder('Choisis un membre à gérer')
                         .setMinValues(1)
                         .setMaxValues(1);
@@ -303,7 +309,7 @@ class PanelService {
                         }));
 
                         const assignSelect = new StringSelectMenuBuilder()
-                                .setCustomId(`panel:member:assignRole:${zoneRow.id}:${selectedMember.id}`)
+                                .setCustomId(this.#panelId('member', 'assignRole', zoneRow.id, selectedMember?.id || selectedMember))
                                 .setPlaceholder('Sélectionne les rôles de la zone')
                                 .setMinValues(0)
                                 .setMaxValues(roleOptions.length ? Math.min(25, roleOptions.length) : 1);
@@ -323,18 +329,18 @@ class PanelService {
                         if (confirmState) {
                                 actionRow.addComponents(
                                         new ButtonBuilder()
-                                                .setCustomId(`panel:member:kick-confirm:${zoneRow.id}:${selectedMember.id}`)
+                                                .setCustomId(this.#panelId('member', 'kick-confirm', zoneRow.id, selectedMember?.id || selectedMember))
                                                 .setLabel('Confirmer l’exclusion')
                                                 .setStyle(ButtonStyle.Danger),
                                         new ButtonBuilder()
-                                                .setCustomId(`panel:member:kick-cancel:${zoneRow.id}:${selectedMember.id}`)
+                                                .setCustomId(this.#panelId('member', 'kick-cancel', zoneRow.id, selectedMember?.id || selectedMember))
                                                 .setLabel('Annuler')
                                                 .setStyle(ButtonStyle.Secondary)
                                 );
                         } else {
                                 actionRow.addComponents(
                                         new ButtonBuilder()
-                                                .setCustomId(`panel:member:kick:${zoneRow.id}:${selectedMember.id}`)
+                                                .setCustomId(this.#panelId('member', 'kick', zoneRow.id, selectedMember?.id || selectedMember))
                                                 .setLabel('Exclure le membre')
                                                 .setStyle(ButtonStyle.Danger)
                                 );
@@ -351,14 +357,14 @@ class PanelService {
 		const embed = new EmbedBuilder().setColor(await this.#resolveZoneColor(zoneRow, guild));
 
 		const addButton = new ButtonBuilder()
-			.setCustomId(`panel:role:add:${zoneRow.id}`)
+			.setCustomId(this.#panelId('role', 'add', zoneRow.id))
 			.setLabel('Ajouter un rôle')
 			.setStyle(ButtonStyle.Success);
 
 		const rows = [new ActionRowBuilder().addComponents(addButton)];
 
 		const select = new StringSelectMenuBuilder()
-			.setCustomId(`panel:role:select:${zoneRow.id}`)
+			.setCustomId(this.#panelId('role', 'select', zoneRow.id))
 			.setPlaceholder('Choisis un rôle personnalisé')
 			.setMinValues(1)
 			.setMaxValues(1);
@@ -449,7 +455,7 @@ class PanelService {
 		}));
 
 		const assignSelect = new StringSelectMenuBuilder()
-			.setCustomId(`panel:role:members:${zoneRow.id}:${role.id}`)
+			.setCustomId(this.#panelId('role', 'members', zoneRow.id, role?.id || role))
 			.setPlaceholder('Sélectionne les membres à qui attribuer ce rôle')
 			.setMinValues(0)
 			.setMaxValues(Math.min(25, memberOptions.length || 1));
@@ -469,11 +475,11 @@ class PanelService {
 			rows.push(
 				new ActionRowBuilder().addComponents(
 					new ButtonBuilder()
-						.setCustomId(`panel:role:delete-confirm:${zoneRow.id}:${role.id}`)
+						.setCustomId(this.#panelId('role', 'delete-confirm', zoneRow.id, role?.id || role))
 						.setLabel('Confirmer la suppression')
 						.setStyle(ButtonStyle.Danger),
 					new ButtonBuilder()
-						.setCustomId(`panel:role:delete-cancel:${zoneRow.id}:${role.id}`)
+						.setCustomId(this.#panelId('role', 'delete-cancel', zoneRow.id, role?.id || role))
 						.setLabel('Annuler')
 						.setStyle(ButtonStyle.Secondary)
 				)
@@ -482,11 +488,11 @@ class PanelService {
 			rows.push(
 				new ActionRowBuilder().addComponents(
 					new ButtonBuilder()
-						.setCustomId(`panel:role:modify:${zoneRow.id}:${role.id}`)
+						.setCustomId(this.#panelId('role', 'modify', zoneRow.id, role?.id || role))
 						.setLabel('Modifier le rôle')
 						.setStyle(ButtonStyle.Primary),
 					new ButtonBuilder()
-						.setCustomId(`panel:role:delete:${zoneRow.id}:${role.id}`)
+						.setCustomId(this.#panelId('role', 'delete', zoneRow.id, role?.id || role))
 						.setLabel('Supprimer le rôle')
 						.setStyle(ButtonStyle.Danger)
 				)
@@ -504,13 +510,13 @@ class PanelService {
 
 		const addRow = new ActionRowBuilder().addComponents(
 			new ButtonBuilder()
-				.setCustomId(`panel:ch:add:${zoneRow.id}`)
+				.setCustomId(this.#panelId('ch', 'add', zoneRow.id))
 				.setLabel('Ajouter un salon')
 				.setStyle(ButtonStyle.Success)
 		);
 
 		const select = new StringSelectMenuBuilder()
-			.setCustomId(`panel:ch:select:${zoneRow.id}`)
+			.setCustomId(this.#panelId('ch', 'select', zoneRow.id))
 			.setPlaceholder('Choisis un salon à gérer')
 			.setMinValues(1)
 			.setMaxValues(1);
@@ -639,7 +645,7 @@ class PanelService {
 		}
 
 		const permSelect = new StringSelectMenuBuilder()
-			.setCustomId(`panel:ch:roles:${zoneRow.id}:${channel.id}`)
+			.setCustomId(this.#panelId('ch', 'roles', zoneRow.id, channel?.id || channel))
 			.setPlaceholder('Choisis les rôles autorisés dans ce salon')
 			.setMinValues(0)
 			.setMaxValues(Math.min(25, permissionOptions.length || 1));
@@ -666,11 +672,11 @@ class PanelService {
 			rows.push(
 				new ActionRowBuilder().addComponents(
 					new ButtonBuilder()
-						.setCustomId(`panel:ch:delete-confirm:${zoneRow.id}:${channel.id}`)
+						.setCustomId(this.#panelId('ch', 'delete-confirm', zoneRow.id, channel?.id || channel))
 						.setLabel('Confirmer la suppression')
 						.setStyle(ButtonStyle.Danger),
 					new ButtonBuilder()
-						.setCustomId(`panel:ch:delete-cancel:${zoneRow.id}:${channel.id}`)
+						.setCustomId(this.#panelId('ch', 'delete-cancel', zoneRow.id, channel?.id || channel))
 						.setLabel('Annuler')
 						.setStyle(ButtonStyle.Secondary)
 				)
@@ -679,12 +685,12 @@ class PanelService {
 			rows.push(
 				new ActionRowBuilder().addComponents(
 					new ButtonBuilder()
-						.setCustomId(`panel:ch:modify:${zoneRow.id}:${channel.id}`)
+						.setCustomId(this.#panelId('ch', 'modify', zoneRow.id, channel?.id || channel))
 						.setLabel('Modifier le salon')
 						.setStyle(ButtonStyle.Primary)
 						.setDisabled(isProtected),
 					new ButtonBuilder()
-						.setCustomId(`panel:ch:delete:${zoneRow.id}:${channel.id}`)
+						.setCustomId(this.#panelId('ch', 'delete', zoneRow.id, channel?.id || channel))
 						.setLabel('Supprimer le salon')
 						.setStyle(ButtonStyle.Danger)
 						.setDisabled(isProtected)
@@ -769,7 +775,7 @@ class PanelService {
                const components = [];
 
                const policySelect = new StringSelectMenuBuilder()
-                       .setCustomId(`panel:policy:set:${zoneRow.id}`)
+                       .setCustomId(this.#panelId('policy', 'set', zoneRow.id))
                        .setPlaceholder('Choisir une politique…')
                        .setMinValues(1)
                        .setMaxValues(1)
@@ -785,7 +791,7 @@ class PanelService {
                if (policy === 'open') {
                        const buttonRow = new ActionRowBuilder().addComponents(
                                new ButtonBuilder()
-                                       .setCustomId(`panel:policy:profile:${zoneRow.id}`)
+                                       .setCustomId(this.#panelId('policy', 'profile', zoneRow.id))
                                        .setLabel('Personnaliser le profil public')
                                        .setStyle(ButtonStyle.Primary)
                        );
@@ -794,7 +800,7 @@ class PanelService {
 
                if (policy === 'ask') {
                        const joinModeSelect = new StringSelectMenuBuilder()
-                               .setCustomId(`panel:policy:askmode:${zoneRow.id}`)
+                               .setCustomId(this.#panelId('policy', 'askmode', zoneRow.id))
                                .setPlaceholder('Mode de demande…')
                                .setMinValues(1)
                                .setMaxValues(1)
@@ -820,7 +826,7 @@ class PanelService {
                                ]);
 
                        const approverSelect = new StringSelectMenuBuilder()
-                               .setCustomId(`panel:policy:approver:${zoneRow.id}`)
+                               .setCustomId(this.#panelId('policy', 'approver', zoneRow.id))
                                .setPlaceholder('Qui approuve ?')
                                .setMinValues(1)
                                .setMaxValues(1)
@@ -873,7 +879,7 @@ class PanelService {
 
 		const collect = async (roleId) => {
 			if (!roleId) return;
-			const role = await guild.roles.fetch(roleId).catch(() => null);
+			const role = await guild.roles.fetch(roleId).catch((err) => { this.logger?.warn({ err }, 'Panel action failed'); return null; });
 			if (!role) return;
 			for (const member of role.members.values()) {
 				memberIds.set(member.id, member);
@@ -894,8 +900,8 @@ class PanelService {
 
 	async #collectZoneRoles(zoneRow) {
 		const guild = await this.client.guilds.fetch(zoneRow.guild_id);
-                const ownerRole = await guild.roles.fetch(zoneRow.role_owner_id).catch(() => null);
-                const memberRole = await guild.roles.fetch(zoneRow.role_member_id).catch(() => null);
+                const ownerRole = await guild.roles.fetch(zoneRow.role_owner_id).catch((err) => { this.logger?.warn({ err }, 'Panel action failed'); return null; });
+                const memberRole = await guild.roles.fetch(zoneRow.role_member_id).catch((err) => { this.logger?.warn({ err }, 'Panel action failed'); return null; });
                 let [customRows] = await this.db.query(
                         'SELECT role_id, name, color FROM zone_roles WHERE zone_id = ? ORDER BY name ASC',
                         [zoneRow.id]
@@ -904,7 +910,7 @@ class PanelService {
 
 		const customRoles = [];
 		for (const row of customRows) {
-			const role = await guild.roles.fetch(row.role_id).catch(() => null);
+			const role = await guild.roles.fetch(row.role_id).catch((err) => { this.logger?.warn({ err }, 'Panel action failed'); return null; });
 			if (!role) continue;
 			customRoles.push({ role, row });
 		}
@@ -1136,11 +1142,11 @@ class PanelService {
 		try {
 			const g = guild || (await this.client.guilds.fetch(zoneRow.guild_id));
 			if (zoneRow.role_owner_id) {
-				const ownerRole = await g.roles.fetch(zoneRow.role_owner_id).catch(() => null);
+				const ownerRole = await g.roles.fetch(zoneRow.role_owner_id).catch((err) => { this.logger?.warn({ err }, 'Panel action failed'); return null; });
 				if (ownerRole?.color) return ownerRole.color;
 			}
 			if (zoneRow.role_member_id) {
-				const memberRole = await g.roles.fetch(zoneRow.role_member_id).catch(() => null);
+				const memberRole = await g.roles.fetch(zoneRow.role_member_id).catch((err) => { this.logger?.warn({ err }, 'Panel action failed'); return null; });
 				if (memberRole?.color) return memberRole.color;
 			}
 		} catch { }
@@ -1155,39 +1161,39 @@ if (!parsed || parsed.namespace !== 'panel') return false;
 const parts = parsed.parts;
 const zoneId = Number(parts[2] || parts.at(-1));
 if (!zoneId) {
-await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch(() => { });
+await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 return true;
 }
 
 		const zoneRow = await this.#getZone(zoneId);
 		if (!zoneRow) {
-			await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral }).catch(() => { });
+			await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			return true;
 		}
 
 		if (interaction.user.id !== String(zoneRow.owner_user_id)) {
-			await interaction.reply({ content: 'Tu ne peux pas gérer cette zone.', flags: MessageFlags.Ephemeral }).catch(() => { });
+			await interaction.reply({ content: 'Tu ne peux pas gérer cette zone.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			return true;
 		}
 
                 if (parts[1] === 'member' && parts[2] === 'select') {
                         const selectedId = interaction.values?.[0];
                         const { embed, components } = await this.renderMembers(zoneRow, selectedId);
-                        await interaction.update({ embeds: [embed], components }).catch(() => { });
+                        await interaction.update({ embeds: [embed], components }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                         return true;
                 }
 
                 if (parts[1] === 'member' && parts[2] === 'assignRole') {
                         const memberId = parts[4];
                         if (!memberId) {
-                                await interaction.reply({ content: 'Membre invalide.', flags: MessageFlags.Ephemeral }).catch(() => { });
+                                await interaction.reply({ content: 'Membre invalide.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                 return true;
                         }
                         const values = interaction.values || [];
-                        await interaction.deferUpdate().catch(() => { });
+                        await interaction.deferUpdate().catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                         try {
                                 const { guild, members } = await this.#collectZoneMembers(zoneRow);
-                                const member = members.find((m) => m.id === memberId) || (await guild.members.fetch(memberId).catch(() => null));
+                                const member = members.find((m) => m.id === memberId) || (await guild.members.fetch(memberId).catch((err) => { this.logger?.warn({ err }, 'Panel action failed'); return null; }));
                                 if (!member) throw new Error('member not found');
 
                                 const { coreRoles, customRoles } = await this.#collectZoneRoles(zoneRow);
@@ -1203,13 +1209,13 @@ return true;
                                 const toRemove = [...current].filter((id) => !desired.has(id));
 
                                 if (toAdd.length) {
-                                        await member.roles.add(toAdd).catch(() => { });
+                                        await member.roles.add(toAdd).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                 }
                                 if (toRemove.length) {
-                                        await member.roles.remove(toRemove).catch(() => { });
+                                        await member.roles.remove(toRemove).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                 }
 
-                                const refreshed = await guild.members.fetch(memberId).catch(() => null);
+                                const refreshed = await guild.members.fetch(memberId).catch((err) => { this.logger?.warn({ err }, 'Panel action failed'); return null; });
                                 const snapshot = refreshed || member;
                                 const updatedRoleIds = new Set(
                                         snapshot.roles?.cache
@@ -1227,9 +1233,9 @@ return true;
                                 await this.#syncZoneMembership(zoneRow, memberId, { hasOwnerRole, hasMemberRole });
 
                                 const { embed, components } = await this.renderMembers(zoneRow, memberId);
-                                await interaction.editReply({ embeds: [embed], components }).catch(() => { });
+                                await interaction.editReply({ embeds: [embed], components }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                         } catch (err) {
-                                await interaction.followUp?.({ content: 'Impossible de mettre à jour les rôles.', flags: MessageFlags.Ephemeral }).catch(() => { });
+                                await interaction.followUp?.({ content: 'Impossible de mettre à jour les rôles.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                         }
                         return true;
                 }
@@ -1237,20 +1243,20 @@ return true;
 		if (parts[1] === 'role' && parts[2] === 'select') {
 			const selectedRoleId = interaction.values?.[0] || null;
 			const { embed, components } = await this.renderRoles(zoneRow, selectedRoleId);
-			await interaction.update({ embeds: [embed], components }).catch(() => { });
+			await interaction.update({ embeds: [embed], components }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			return true;
 		}
 
 		if (parts[1] === 'role' && parts[2] === 'members') {
 			const roleId = parts[4];
 			if (!roleId) {
-				await interaction.reply({ content: 'Rôle invalide.', flags: MessageFlags.Ephemeral }).catch(() => { });
+				await interaction.reply({ content: 'Rôle invalide.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				return true;
 			}
-			await interaction.deferUpdate().catch(() => { });
+			await interaction.deferUpdate().catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			try {
 				const { guild } = await this.#collectZoneRoles(zoneRow);
-				const role = await guild.roles.fetch(roleId).catch(() => null);
+				const role = await guild.roles.fetch(roleId).catch((err) => { this.logger?.warn({ err }, 'Panel action failed'); return null; });
 				if (!role) throw new Error('role not found');
 
 				const { members: zoneMembers } = await this.#collectZoneMembers(zoneRow);
@@ -1276,7 +1282,7 @@ return true;
 
                                 const removedSuccessfully = [];
                                 for (const memberId of toRemove) {
-                                        const member = zoneMemberMap.get(memberId) || (await guild.members.fetch(memberId).catch(() => null));
+                                        const member = zoneMemberMap.get(memberId) || (await guild.members.fetch(memberId).catch((err) => { this.logger?.warn({ err }, 'Panel action failed'); return null; }));
                                         if (!member) continue;
                                         try {
                                                 await member.roles.remove(role);
@@ -1293,9 +1299,9 @@ return true;
                                 }
 
 				const { embed, components } = await this.renderRoles(zoneRow, roleId);
-				await interaction.message.edit({ embeds: [embed], components }).catch(() => { });
+				await interaction.message.edit({ embeds: [embed], components }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			} catch (err) {
-				await interaction.followUp?.({ content: 'Impossible de mettre à jour les membres du rôle.', flags: MessageFlags.Ephemeral }).catch(() => { });
+				await interaction.followUp?.({ content: 'Impossible de mettre à jour les membres du rôle.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			}
 			return true;
 		}
@@ -1303,20 +1309,20 @@ return true;
 		if (parts[1] === 'ch' && parts[2] === 'select') {
 			const channelId = interaction.values?.[0] || null;
 			const { embed, components } = await this.renderChannels(zoneRow, channelId);
-			await interaction.update({ embeds: [embed], components }).catch(() => { });
+			await interaction.update({ embeds: [embed], components }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			return true;
 		}
 
 		if (parts[1] === 'ch' && parts[2] === 'roles') {
 			const channelId = parts[4];
 			if (!channelId) {
-				await interaction.reply({ content: 'Salon invalide.', flags: MessageFlags.Ephemeral }).catch(() => { });
+				await interaction.reply({ content: 'Salon invalide.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				return true;
 			}
-			await interaction.deferUpdate().catch(() => { });
+			await interaction.deferUpdate().catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			try {
 				const { guild } = await this.#collectZoneChannels(zoneRow);
-				const channel = await guild.channels.fetch(channelId).catch(() => null);
+				const channel = await guild.channels.fetch(channelId).catch((err) => { this.logger?.warn({ err }, 'Panel action failed'); return null; });
 				if (!channel) throw new Error('channel not found');
 
                                 const { coreRoles, customRoles } = await this.#collectZoneRoles(zoneRow);
@@ -1336,7 +1342,7 @@ return true;
                                 const selectedIds = new Set((interaction.values || []).filter((value) => validRoleIds.has(value)));
                                 if (zoneRow.role_owner_id) selectedIds.add(zoneRow.role_owner_id);
 
-                                const botMember = guild.members.me || (await guild.members.fetch(this.client.user.id).catch(() => null));
+                                const botMember = guild.members.me || (await guild.members.fetch(this.client.user.id).catch((err) => { this.logger?.warn({ err }, 'Panel action failed'); return null; }));
                                 const botRole = botMember?.roles?.highest || null;
 
                                 const overwrites = this.#buildChannelPermissionOverwrites(guild, zoneRow, channel, selectedIds, botRole, {
@@ -1345,14 +1351,14 @@ return true;
 				await channel.permissionOverwrites.set(overwrites);
 
 				const { embed, components } = await this.renderChannels(zoneRow, channelId);
-				await interaction.message.edit({ embeds: [embed], components }).catch(() => { });
+				await interaction.message.edit({ embeds: [embed], components }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			} catch (err) {
-				await interaction.followUp?.({ content: 'Impossible de mettre à jour les permissions du salon.', flags: MessageFlags.Ephemeral }).catch(() => { });
+				await interaction.followUp?.({ content: 'Impossible de mettre à jour les permissions du salon.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			}
 			return true;
 		}
 
-		await interaction.deferUpdate().catch(() => { });
+		await interaction.deferUpdate().catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 		return true;
 	}
 
@@ -1363,31 +1369,31 @@ if (!parsed || parsed.namespace !== 'panel') return false;
 const parts = parsed.parts;
 const zoneId = Number(parts[2] || parts.at(-1));
 		if (!zoneId) {
-			await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch(() => { });
+			await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			return true;
 		}
 		const zoneRow = await this.#getZone(zoneId);
 		if (!zoneRow) {
-			await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral }).catch(() => { });
+			await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			return true;
 		}
 		if (interaction.user.id !== String(zoneRow.owner_user_id)) {
-			await interaction.reply({ content: 'Tu ne peux pas gérer cette zone.', flags: MessageFlags.Ephemeral }).catch(() => { });
+			await interaction.reply({ content: 'Tu ne peux pas gérer cette zone.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			return true;
 		}
 
                 if (parts[1] === 'refresh') {
                         try {
-                                await interaction.deferUpdate().catch(() => {});
+                                await interaction.deferUpdate().catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                 await this.refresh(zoneRow.id, ['members', 'roles', 'channels', 'policy', 'refresh']);
                                 if (!interaction.deferred && !interaction.replied) {
                                         await interaction
                                                 .reply({ content: 'Panneau actualisé.', flags: MessageFlags.Ephemeral })
-                                                .catch(() => {});
+                                                .catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                 } else {
                                         await interaction
                                                 .followUp({ content: 'Panneau actualisé.', flags: MessageFlags.Ephemeral })
-                                                .catch(() => {});
+                                                .catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                 }
                         } catch (err) {
                                 this.logger?.warn({ err, zoneId: zoneRow.id }, 'Failed to refresh panel via button');
@@ -1397,14 +1403,14 @@ const zoneId = Number(parts[2] || parts.at(-1));
                                                         content: 'Impossible de rafraîchir le panneau.',
                                                         flags: MessageFlags.Ephemeral
                                                 })
-                                                .catch(() => {});
+                                                .catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                 } else {
                                         await interaction
                                                 .followUp({
                                                         content: 'Impossible de rafraîchir le panneau.',
                                                         flags: MessageFlags.Ephemeral
                                                 })
-                                                .catch(() => {});
+                                                .catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                 }
                         }
                         return true;
@@ -1414,54 +1420,54 @@ const zoneId = Number(parts[2] || parts.at(-1));
                         const memberId = parts[4];
                         if (parts[2] === 'kick') {
                                 if (!memberId) {
-                                        await interaction.reply({ content: 'Membre invalide.', flags: MessageFlags.Ephemeral }).catch(() => { });
+                                        await interaction.reply({ content: 'Membre invalide.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                         return true;
                                 }
                                 if (memberId === String(zoneRow.owner_user_id)) {
-                                        await interaction.reply({ content: 'Impossible d’exclure le propriétaire de la zone.', flags: MessageFlags.Ephemeral }).catch(() => { });
+                                        await interaction.reply({ content: 'Impossible d’exclure le propriétaire de la zone.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                         return true;
                                 }
                                 const { embed, components } = await this.renderMembers(zoneRow, memberId, { confirmKickFor: memberId });
-                                await interaction.update({ embeds: [embed], components }).catch(() => { });
+                                await interaction.update({ embeds: [embed], components }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                 return true;
                         }
 
                         if (parts[2] === 'kick-confirm') {
                                 if (!memberId) {
-                                        await interaction.reply({ content: 'Membre invalide.', flags: MessageFlags.Ephemeral }).catch(() => { });
+                                        await interaction.reply({ content: 'Membre invalide.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                         return true;
                                 }
                                 if (memberId === String(zoneRow.owner_user_id)) {
-                                        await interaction.reply({ content: 'Impossible d’exclure le propriétaire.', flags: MessageFlags.Ephemeral }).catch(() => { });
+                                        await interaction.reply({ content: 'Impossible d’exclure le propriétaire.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                         return true;
                                 }
-                                await interaction.deferUpdate().catch(() => { });
+                                await interaction.deferUpdate().catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                 try {
                                         const { guild } = await this.#collectZoneMembers(zoneRow);
-                                        const member = await guild.members.fetch(memberId).catch(() => null);
+                                        const member = await guild.members.fetch(memberId).catch((err) => { this.logger?.warn({ err }, 'Panel action failed'); return null; });
                                         if (member) {
                                                 const roleIds = new Set();
                                                 if (zoneRow.role_member_id) roleIds.add(zoneRow.role_member_id);
                                                 if (zoneRow.role_owner_id) roleIds.add(zoneRow.role_owner_id);
                                                 const { customRoles } = await this.#collectZoneRoles(zoneRow);
                                                 for (const entry of customRoles) roleIds.add(entry.role.id);
-                                                await member.roles.remove([...roleIds]).catch(() => { });
+                                                await member.roles.remove([...roleIds]).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                         }
-                                        await this.#removeAllMemberRoleRecords(zoneRow, memberId).catch(() => { });
-                                        await this.db.query('DELETE FROM zone_members WHERE zone_id = ? AND user_id = ?', [zoneRow.id, memberId]).catch(() => { });
+                                        await this.#removeAllMemberRoleRecords(zoneRow, memberId).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
+                                        await this.db.query('DELETE FROM zone_members WHERE zone_id = ? AND user_id = ?', [zoneRow.id, memberId]).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                         const { embed, components } = await this.renderMembers(zoneRow);
-                                        await interaction.editReply({ embeds: [embed], components }).catch(() => { });
+                                        await interaction.editReply({ embeds: [embed], components }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                 } catch (err) {
-                                        await interaction.followUp?.({ content: 'Impossible d’exclure ce membre.', flags: MessageFlags.Ephemeral }).catch(() => { });
+                                        await interaction.followUp?.({ content: 'Impossible d’exclure ce membre.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                         const { embed, components } = await this.renderMembers(zoneRow, memberId, { confirmKickFor: memberId });
-                                        await interaction.editReply({ embeds: [embed], components }).catch(() => { });
+                                        await interaction.editReply({ embeds: [embed], components }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                 }
                                 return true;
                         }
 
                         if (parts[2] === 'kick-cancel') {
                                 const { embed, components } = await this.renderMembers(zoneRow, memberId);
-                                await interaction.update({ embeds: [embed], components }).catch(() => { });
+                                await interaction.update({ embeds: [embed], components }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                 return true;
                         }
                 }
@@ -1470,7 +1476,7 @@ const zoneId = Number(parts[2] || parts.at(-1));
 			const roleId = parts[4];
 			if (parts[2] === 'add') {
 				const modal = new ModalBuilder()
-					.setCustomId(`panel:role:create:${zoneRow.id}`)
+					.setCustomId(this.#panelId('role', 'create', zoneRow.id))
 					.setTitle('Créer un rôle');
 				const nameInput = new TextInputBuilder()
 					.setCustomId('roleName')
@@ -1494,17 +1500,17 @@ const zoneId = Number(parts[2] || parts.at(-1));
 
 			if (parts[2] === 'modify') {
 				if (!roleId) {
-					await interaction.reply({ content: 'Rôle invalide.', flags: MessageFlags.Ephemeral }).catch(() => { });
+					await interaction.reply({ content: 'Rôle invalide.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 					return true;
 				}
 				const { customRoles } = await this.#collectZoneRoles(zoneRow);
 				const entry = customRoles.find((item) => item.role.id === roleId);
 				if (!entry) {
-					await interaction.reply({ content: 'Ce rôle est introuvable ou protégé.', flags: MessageFlags.Ephemeral }).catch(() => { });
+					await interaction.reply({ content: 'Ce rôle est introuvable ou protégé.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 					return true;
 				}
 				const modal = new ModalBuilder()
-					.setCustomId(`panel:role:update:${zoneRow.id}:${roleId}`)
+					.setCustomId(this.#panelId('role', 'update', zoneRow.id, roleId))
 					.setTitle('Modifier le rôle');
 				const nameInput = new TextInputBuilder()
 					.setCustomId('roleName')
@@ -1529,37 +1535,37 @@ const zoneId = Number(parts[2] || parts.at(-1));
 
 			if (parts[2] === 'delete') {
 				if (!roleId) {
-					await interaction.reply({ content: 'Rôle invalide.', flags: MessageFlags.Ephemeral }).catch(() => { });
+					await interaction.reply({ content: 'Rôle invalide.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 					return true;
 				}
 				const { embed, components } = await this.renderRoles(zoneRow, roleId, { confirmDeleteFor: roleId });
-				await interaction.update({ embeds: [embed], components }).catch(() => { });
+				await interaction.update({ embeds: [embed], components }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				return true;
 			}
 
 			if (parts[2] === 'delete-cancel') {
 				const selectedId = roleId || null;
 				const { embed, components } = await this.renderRoles(zoneRow, selectedId);
-				await interaction.update({ embeds: [embed], components }).catch(() => { });
+				await interaction.update({ embeds: [embed], components }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				return true;
 			}
 
 			if (parts[2] === 'delete-confirm') {
 				if (!roleId) {
-					await interaction.deferUpdate().catch(() => { });
+					await interaction.deferUpdate().catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 					return true;
 				}
-                                await interaction.deferUpdate().catch(() => { });
+                                await interaction.deferUpdate().catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                 try {
                                         const { guild } = await this.#collectZoneRoles(zoneRow);
-                                        const role = await guild.roles.fetch(roleId).catch(() => null);
-                                        if (role) await role.delete(`Suppression via panneau de zone #${zoneRow.id}`).catch(() => { });
-                                        await this.#removeRoleAssignments(zoneRow, roleId).catch(() => { });
+                                        const role = await guild.roles.fetch(roleId).catch((err) => { this.logger?.warn({ err }, 'Panel action failed'); return null; });
+                                        if (role) await role.delete(`Suppression via panneau de zone #${zoneRow.id}`).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
+                                        await this.#removeRoleAssignments(zoneRow, roleId).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                         await this.db.query('DELETE FROM zone_roles WHERE zone_id = ? AND role_id = ?', [zoneRow.id, roleId]);
                                         await this.refresh(zoneRow.id, ['roles']);
-                                        await interaction.followUp({ content: 'Rôle supprimé.', flags: MessageFlags.Ephemeral }).catch(() => { });
+                                        await interaction.followUp({ content: 'Rôle supprimé.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                 } catch (err) {
-                                        await interaction.followUp({ content: 'Impossible de supprimer ce rôle.', flags: MessageFlags.Ephemeral }).catch(() => { });
+                                        await interaction.followUp({ content: 'Impossible de supprimer ce rôle.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				}
 				return true;
 			}
@@ -1569,7 +1575,7 @@ const zoneId = Number(parts[2] || parts.at(-1));
 			const channelId = parts[4];
 			if (parts[2] === 'add') {
 				const modal = new ModalBuilder()
-					.setCustomId(`panel:ch:create:${zoneRow.id}`)
+					.setCustomId(this.#panelId('ch', 'create', zoneRow.id))
 					.setTitle('Créer un salon');
 				const nameInput = new TextInputBuilder()
 					.setCustomId('channelName')
@@ -1603,16 +1609,16 @@ const zoneId = Number(parts[2] || parts.at(-1));
 
 			if (parts[2] === 'modify') {
 				if (!entry) {
-					await interaction.reply({ content: 'Salon introuvable.', flags: MessageFlags.Ephemeral }).catch(() => { });
+					await interaction.reply({ content: 'Salon introuvable.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 					return true;
 				}
 				if (entry.isProtected) {
-					await interaction.reply({ content: 'Ce salon est protégé et ne peut pas être modifié.', flags: MessageFlags.Ephemeral }).catch(() => { });
+					await interaction.reply({ content: 'Ce salon est protégé et ne peut pas être modifié.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 					return true;
 				}
 				const channel = entry.channel;
 				const modal = new ModalBuilder()
-					.setCustomId(`panel:ch:update:${zoneRow.id}:${channel.id}`)
+					.setCustomId(this.#panelId('ch', 'update', zoneRow.id, channel?.id || channel))
 					.setTitle('Modifier le salon');
 				const nameInput = new TextInputBuilder()
 					.setCustomId('channelName')
@@ -1638,50 +1644,50 @@ const zoneId = Number(parts[2] || parts.at(-1));
 
 			if (parts[2] === 'delete') {
 				if (!entry) {
-					await interaction.reply({ content: 'Salon introuvable.', flags: MessageFlags.Ephemeral }).catch(() => { });
+					await interaction.reply({ content: 'Salon introuvable.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 					return true;
 				}
 				if (entry.isProtected) {
-					await interaction.reply({ content: 'Ce salon est protégé et ne peut pas être supprimé.', flags: MessageFlags.Ephemeral }).catch(() => { });
+					await interaction.reply({ content: 'Ce salon est protégé et ne peut pas être supprimé.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 					return true;
 				}
 				const { embed, components } = await this.renderChannels(zoneRow, entry.channel.id, { confirmDeleteFor: entry.channel.id });
-				await interaction.update({ embeds: [embed], components }).catch(() => { });
+				await interaction.update({ embeds: [embed], components }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				return true;
 			}
 
 			if (parts[2] === 'delete-cancel') {
 				const selectedId = entry?.channel.id || null;
 				const { embed, components } = await this.renderChannels(zoneRow, selectedId);
-				await interaction.update({ embeds: [embed], components }).catch(() => { });
+				await interaction.update({ embeds: [embed], components }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				return true;
 			}
 
 			if (parts[2] === 'delete-confirm') {
 				if (!entry) {
-					await interaction.deferUpdate().catch(() => { });
+					await interaction.deferUpdate().catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 					return true;
 				}
 				if (entry.isProtected) {
-					await interaction.deferUpdate().catch(() => { });
-					await interaction.followUp({ content: 'Ce salon est protégé et ne peut pas être supprimé.', flags: MessageFlags.Ephemeral }).catch(() => { });
+					await interaction.deferUpdate().catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
+					await interaction.followUp({ content: 'Ce salon est protégé et ne peut pas être supprimé.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 					return true;
 				}
-				await interaction.deferUpdate().catch(() => { });
+				await interaction.deferUpdate().catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				try {
 					const guild = await this.client.guilds.fetch(zoneRow.guild_id);
-					const channel = await guild.channels.fetch(entry.channel.id).catch(() => null);
-					if (channel) await channel.delete(`Suppression via panneau de zone #${zoneRow.id}`).catch(() => { });
+					const channel = await guild.channels.fetch(entry.channel.id).catch((err) => { this.logger?.warn({ err }, 'Panel action failed'); return null; });
+					if (channel) await channel.delete(`Suppression via panneau de zone #${zoneRow.id}`).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 					await this.refresh(zoneRow.id, ['channels']);
-					await interaction.followUp({ content: 'Salon supprimé.', flags: MessageFlags.Ephemeral }).catch(() => { });
+					await interaction.followUp({ content: 'Salon supprimé.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				} catch (err) {
-					await interaction.followUp({ content: 'Impossible de supprimer ce salon.', flags: MessageFlags.Ephemeral }).catch(() => { });
+					await interaction.followUp({ content: 'Impossible de supprimer ce salon.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				}
 				return true;
 			}
 		}
 
-		await interaction.deferUpdate().catch(() => { });
+		await interaction.deferUpdate().catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 		return true;
 	}
 
@@ -1692,16 +1698,16 @@ if (!parsed || parsed.namespace !== 'panel') return false;
 const parts = parsed.parts;
 const zoneId = Number(parts[2] || parts.at(-1));
 		if (!zoneId) {
-			await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch(() => { });
+			await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			return true;
 		}
 		const zoneRow = await this.#getZone(zoneId);
 		if (!zoneRow) {
-			await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral }).catch(() => { });
+			await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			return true;
 		}
 		if (interaction.user.id !== String(zoneRow.owner_user_id)) {
-			await interaction.reply({ content: 'Tu ne peux pas gérer cette zone.', flags: MessageFlags.Ephemeral }).catch(() => { });
+			await interaction.reply({ content: 'Tu ne peux pas gérer cette zone.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			return true;
 		}
 
@@ -1709,19 +1715,19 @@ const zoneId = Number(parts[2] || parts.at(-1));
 			const nameRaw = (interaction.fields.getTextInputValue('roleName') || '').trim();
 			const colorRaw = (interaction.fields.getTextInputValue('roleColor') || '').trim();
 			if (!nameRaw.length) {
-				await interaction.reply({ content: 'Le nom du rôle est requis.', flags: MessageFlags.Ephemeral }).catch(() => { });
+				await interaction.reply({ content: 'Le nom du rôle est requis.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				return true;
 			}
 			const color = colorRaw ? this.#normalizeColor(colorRaw) : null;
 			if (colorRaw && !color) {
-				await interaction.reply({ content: 'Couleur invalide. Utilise le format #RRGGBB.', flags: MessageFlags.Ephemeral }).catch(() => { });
+				await interaction.reply({ content: 'Couleur invalide. Utilise le format #RRGGBB.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				return true;
 			}
-			await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => { });
+			await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			try {
 				const { guild, customRoles } = await this.#collectZoneRoles(zoneRow);
 				if (customRoles.length >= 10) {
-					await interaction.editReply({ content: 'Limite de rôles personnalisés atteinte (10).' }).catch(() => { });
+					await interaction.editReply({ content: 'Limite de rôles personnalisés atteinte (10).' }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 					return true;
 				}
 				const safeName = nameRaw.slice(0, 100);
@@ -1735,10 +1741,10 @@ const zoneId = Number(parts[2] || parts.at(-1));
 					'INSERT INTO zone_roles (zone_id, role_id, name, color) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), color = VALUES(color)',
 					[zoneRow.id, role.id, safeName.slice(0, 64), color || null]
 				);
-				await interaction.editReply({ content: `✅ Rôle <@&${role.id}> créé.` }).catch(() => { });
+				await interaction.editReply({ content: `✅ Rôle <@&${role.id}> créé.` }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				await this.refresh(zoneRow.id, ['roles']);
 			} catch (err) {
-				await interaction.editReply({ content: 'Impossible de créer ce rôle pour le moment.' }).catch(() => { });
+				await interaction.editReply({ content: 'Impossible de créer ce rôle pour le moment.' }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			}
 			return true;
 		}
@@ -1748,20 +1754,20 @@ const zoneId = Number(parts[2] || parts.at(-1));
 			const nameRaw = (interaction.fields.getTextInputValue('roleName') || '').trim();
 			const colorRaw = (interaction.fields.getTextInputValue('roleColor') || '').trim();
 			if (!roleId || !nameRaw.length) {
-				await interaction.reply({ content: 'Rôle invalide.', flags: MessageFlags.Ephemeral }).catch(() => { });
+				await interaction.reply({ content: 'Rôle invalide.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				return true;
 			}
 			const normalizedColor = colorRaw ? this.#normalizeColor(colorRaw) : null;
 			if (colorRaw && !normalizedColor) {
-				await interaction.reply({ content: 'Couleur invalide. Utilise le format #RRGGBB.', flags: MessageFlags.Ephemeral }).catch(() => { });
+				await interaction.reply({ content: 'Couleur invalide. Utilise le format #RRGGBB.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				return true;
 			}
-			await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => { });
+			await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			try {
 				const { guild } = await this.#collectZoneRoles(zoneRow);
-				const role = await guild.roles.fetch(roleId).catch(() => null);
+				const role = await guild.roles.fetch(roleId).catch((err) => { this.logger?.warn({ err }, 'Panel action failed'); return null; });
 				if (!role) {
-					await interaction.editReply({ content: 'Rôle introuvable.' }).catch(() => { });
+					await interaction.editReply({ content: 'Rôle introuvable.' }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 					return true;
 				}
 				const safeName = nameRaw.slice(0, 100);
@@ -1771,15 +1777,15 @@ const zoneId = Number(parts[2] || parts.at(-1));
 				} else if (normalizedColor) {
 					payload.color = normalizedColor;
 				}
-				await role.edit(payload).catch(() => { });
+				await role.edit(payload).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				await this.db.query(
 					'INSERT INTO zone_roles (zone_id, role_id, name, color) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), color = VALUES(color)',
 					[zoneRow.id, role.id, safeName.slice(0, 64), colorRaw === '' ? null : normalizedColor]
 				);
-				await interaction.editReply({ content: '✅ Rôle mis à jour.' }).catch(() => { });
+				await interaction.editReply({ content: '✅ Rôle mis à jour.' }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				await this.refresh(zoneRow.id, ['roles']);
 			} catch (err) {
-				await interaction.editReply({ content: 'Impossible de modifier ce rôle.' }).catch(() => { });
+				await interaction.editReply({ content: 'Impossible de modifier ce rôle.' }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			}
 			return true;
 		}
@@ -1789,15 +1795,15 @@ const zoneId = Number(parts[2] || parts.at(-1));
 			const typeRaw = (interaction.fields.getTextInputValue('channelType') || '').trim();
 			const description = (interaction.fields.getTextInputValue('channelDescription') || '').trim();
 			if (!nameRaw.length) {
-				await interaction.reply({ content: 'Le nom du salon est requis.', flags: MessageFlags.Ephemeral }).catch(() => { });
+				await interaction.reply({ content: 'Le nom du salon est requis.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				return true;
 			}
                         const channelType = this.#parseChannelType(typeRaw);
                         if (channelType === null) {
-                                await interaction.reply({ content: 'Type de salon invalide. Utilise `texte` ou `vocal`.', flags: MessageFlags.Ephemeral }).catch(() => { });
+                                await interaction.reply({ content: 'Type de salon invalide. Utilise `texte` ou `vocal`.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                                 return true;
                         }
-			await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => { });
+			await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			try {
                                 const { guild, customRoles, coreRoles } = await this.#collectZoneRoles(zoneRow);
                                 const channel = await guild.channels.create({
@@ -1807,7 +1813,7 @@ const zoneId = Number(parts[2] || parts.at(-1));
                                         topic: channelType === ChannelType.GuildText ? (description || undefined) : undefined,
                                         reason: `Création via panneau de zone #${zoneRow.id}`
                                 });
-                                const botMember = guild.members.me || (await guild.members.fetch(this.client.user.id).catch(() => null));
+                                const botMember = guild.members.me || (await guild.members.fetch(this.client.user.id).catch((err) => { this.logger?.warn({ err }, 'Panel action failed'); return null; }));
                                 const botRole = botMember?.roles?.highest || null;
                                 const allowed = new Set();
                                 if (zoneRow.role_owner_id) allowed.add(zoneRow.role_owner_id);
@@ -1827,10 +1833,10 @@ const zoneId = Number(parts[2] || parts.at(-1));
                                         denyRoleIds: [...denyRoleIds]
                                 });
 				await channel.permissionOverwrites.set(overwrites);
-				await interaction.editReply({ content: `✅ Salon ${channelType === ChannelType.GuildVoice ? 'vocal' : 'textuel'} créé.` }).catch(() => { });
+				await interaction.editReply({ content: `✅ Salon ${channelType === ChannelType.GuildVoice ? 'vocal' : 'textuel'} créé.` }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				await this.refresh(zoneRow.id, ['channels']);
 			} catch (err) {
-				await interaction.editReply({ content: 'Impossible de créer ce salon.' }).catch(() => { });
+				await interaction.editReply({ content: 'Impossible de créer ce salon.' }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			}
 			return true;
 		}
@@ -1840,38 +1846,38 @@ const zoneId = Number(parts[2] || parts.at(-1));
 			const nameRaw = (interaction.fields.getTextInputValue('channelName') || '').trim();
 			const description = (interaction.fields.getTextInputValue('channelDescription') || '').trim();
 			if (!channelId || !nameRaw.length) {
-				await interaction.reply({ content: 'Salon invalide.', flags: MessageFlags.Ephemeral }).catch(() => { });
+				await interaction.reply({ content: 'Salon invalide.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				return true;
 			}
-			await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => { });
+			await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			try {
 				const guild = await this.client.guilds.fetch(zoneRow.guild_id);
-				const channel = await guild.channels.fetch(channelId).catch(() => null);
+				const channel = await guild.channels.fetch(channelId).catch((err) => { this.logger?.warn({ err }, 'Panel action failed'); return null; });
 				if (!channel) {
-					await interaction.editReply({ content: 'Salon introuvable.' }).catch(() => { });
+					await interaction.editReply({ content: 'Salon introuvable.' }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 					return true;
 				}
 				const { channels } = await this.#collectZoneChannels(zoneRow);
 				const entry = channels.find((item) => item.channel.id === channelId);
 				if (entry?.isProtected) {
-					await interaction.editReply({ content: 'Ce salon est protégé et ne peut pas être modifié.' }).catch(() => { });
+					await interaction.editReply({ content: 'Ce salon est protégé et ne peut pas être modifié.' }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 					return true;
 				}
 				const safeName = nameRaw.slice(0, 100);
 				if (channel.type === ChannelType.GuildVoice) {
-					await channel.setName(safeName).catch(() => { });
+					await channel.setName(safeName).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				} else {
-					await channel.edit({ name: safeName, topic: description || null }).catch(() => { });
+					await channel.edit({ name: safeName, topic: description || null }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				}
-				await interaction.editReply({ content: '✅ Salon mis à jour.' }).catch(() => { });
+				await interaction.editReply({ content: '✅ Salon mis à jour.' }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 				await this.refresh(zoneRow.id, ['channels']);
 			} catch (err) {
-				await interaction.editReply({ content: 'Impossible de modifier ce salon.' }).catch(() => { });
+				await interaction.editReply({ content: 'Impossible de modifier ce salon.' }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 			}
 			return true;
 		}
 
-		await interaction.reply({ content: 'Action invalide.', flags: MessageFlags.Ephemeral }).catch(() => { });
+		await interaction.reply({ content: 'Action invalide.', flags: MessageFlags.Ephemeral }).catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
 		return true;
 	}
 
@@ -1901,7 +1907,7 @@ const zoneId = Number(parts[2] || parts.at(-1));
                 if (!(await this.#columnExists('panel_messages', 'refresh_msg_id'))) {
                         await this.db
                                 .query('ALTER TABLE `panel_messages` ADD COLUMN refresh_msg_id VARCHAR(32) NULL AFTER zone_id')
-                                .catch(() => {});
+                                .catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                 }
                 await this.db.query(`CREATE TABLE IF NOT EXISTS panel_message_registry (
                         zone_id INT NOT NULL,
@@ -1941,7 +1947,7 @@ const zoneId = Number(parts[2] || parts.at(-1));
                 if (!messageId) {
                         await this.db
                                 .query('DELETE FROM panel_message_registry WHERE zone_id = ? AND kind = ?', [zoneId, kind])
-                                .catch(() => {});
+                                .catch((err) => this.logger?.warn({ err }, 'Panel action failed'));
                         return;
                 }
                 await this.db.query(
