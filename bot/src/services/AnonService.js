@@ -1,14 +1,23 @@
 
 const crypto = require('crypto');
-const { WebhookClient, EmbedBuilder, MessageFlags } = require('discord.js');
+const {
+WebhookClient,
+EmbedBuilder,
+MessageFlags,
+ActionRowBuilder,
+ButtonBuilder,
+ButtonStyle
+} = require('discord.js');
 const { generateAnonName } = require('../utils/anonNames');
+const { ensureFallback } = require('../utils/channels');
+const { makeId } = require('../utils/ids');
 
 class AnonService {
-        constructor(client, db, logger = null) {
-                this.client = client;
-                this.db = db;
-                this.logger = logger;
-        }
+	constructor(client, db, logger = null) {
+		this.client = client;
+		this.db = db;
+		this.logger = logger;
+	}
 
 	#todaySalt() {
 		const d = new Date();
@@ -16,10 +25,10 @@ class AnonService {
 		return crypto.createHash('sha256').update('daily-salt::' + key).digest('hex').slice(0, 16);
 	}
 
-    #buildAnonName(userId, targetZoneId) {
-        const seed = `${userId}:${targetZoneId}:${this.#todaySalt()}`;
-        return generateAnonName(seed);
-    }
+	#buildAnonName(userId, targetZoneId) {
+	const seed = `${userId}:${targetZoneId}:${this.#todaySalt()}`;
+	return generateAnonName(seed);
+	}
 
 	async #getZone(zoneId) {
 	const [rows] = await this.db.query(
@@ -55,50 +64,114 @@ class AnonService {
 		return rows?.[0]?.zone_id || null;
 	}
 
-        async #allTargets() {
-                const [rows] = await this.db.query('SELECT zone_id, source_channel_id, webhook_id, webhook_token FROM anon_channels');
-                return rows;
-        }
-
-        async #ensureWebhook(row) {
-                if (!row) return row;
-                if (row.webhook_id === '0' || row.webhook_token === '0') {
-                        row._webhookDisabled = true;
-                        return row;
-                }
-                if (row.webhook_id && row.webhook_token) return row;
-
-                const channel = await this.client.channels.fetch(row.source_channel_id).catch(() => null);
-                if (!channel) return row;
-
-                try {
-                        const hook = await channel.createWebhook({ name: 'Anon Relay' });
-                        await this.db.query('UPDATE anon_channels SET webhook_id=?, webhook_token=? WHERE zone_id=?', [hook.id, hook.token, row.zone_id]);
-                        row.webhook_id = hook.id;
-                        row.webhook_token = hook.token;
-                } catch (err) {
-                        if (err?.code === 50013 || err?.status === 403) {
-                                this.logger?.warn?.({ err, channelId: row.source_channel_id }, 'Missing Manage Webhooks permission');
-                                await this.db.query('UPDATE anon_channels SET webhook_id=?, webhook_token=? WHERE zone_id=?', ['0', '0', row.zone_id]).catch(() => {});
-                                row.webhook_id = '0';
-                                row.webhook_token = '0';
-                                row._webhookDisabled = true;
-                        } else {
-                                this.logger?.error?.({ err, channelId: row.source_channel_id }, 'Failed to ensure anon webhook');
-                        }
-                }
-
-                return row;
-        }
-
-	#sanitize(content) {
-		if (!content) return '';
-		return content
-			.replace(/@everyone/gi, '@\u200beveryone')
-			.replace(/@here/gi, '@\u200bhere');
+	async #allTargets() {
+		const [rows] = await this.db.query('SELECT zone_id, source_channel_id, webhook_id, webhook_token FROM anon_channels');
+		return rows;
 	}
 
-        async handleMessage(message) {
+	async #ensureWebhook(row) {
+		if (!row) return row;
+		if (row.webhook_id === '0' || row.webhook_token === '0') {
+			row._webhookDisabled = true;
+			return row;
+		}
+		if (row.webhook_id && row.webhook_token) return row;
+
+		const channel = await this.client.channels.fetch(row.source_channel_id).catch(() => null);
+		if (!channel) return row;
+
+		try {
+			const hook = await channel.createWebhook({ name: 'Anon Relay' });
+			await this.db.query('UPDATE anon_channels SET webhook_id=?, webhook_token=? WHERE zone_id=?', [hook.id, hook.token, row.zone_id]);
+			row.webhook_id = hook.id;
+			row.webhook_token = hook.token;
+		} catch (err) {
+			if (err?.code === 50013 || err?.status === 403) {
+				this.logger?.warn?.({ err, channelId: row.source_channel_id }, 'Missing Manage Webhooks permission');
+				await this.db.query('UPDATE anon_channels SET webhook_id=?, webhook_token=? WHERE zone_id=?', ['0', '0', row.zone_id]).catch(() => {});
+				row.webhook_id = '0';
+				row.webhook_token = '0';
+				row._webhookDisabled = true;
+			} else {
+				this.logger?.error?.({ err, channelId: row.source_channel_id }, 'Failed to ensure anon webhook');
+			}
+		}
+
+		return row;
+	}
+
+#sanitize(content) {
+if (!content) return '';
+return content
+.replace(/@everyone/gi, '@\u200beveryone')
+.replace(/@here/gi, '@\u200bhere');
+}
+
+async handleCreateClosed(interaction, tempGroupService) {
+if (!interaction?.guild || !interaction?.user) {
+throw new Error('interaction incomplete');
+}
+if (!tempGroupService?.createTempGroup) {
+throw new Error('temp group service unavailable');
+}
+const created = await tempGroupService.createTempGroup(interaction.guild, {
+name: 'Groupe anonyme',
+isOpen: false,
+participants: [interaction.user.id],
+authorId: interaction.user.id,
+requester: interaction.user
+});
+let delivered = false;
+try {
+await interaction.user.send({ content: `Salon privé : <#${created.textChannelId}>`, flags: MessageFlags.SuppressNotifications });
+delivered = true;
+} catch (err) {
+this.logger?.warn?.({ err, userId: interaction.user.id }, 'Failed to DM anon invite');
+}
+if (!delivered) {
+const fallback = await ensureFallback(interaction.guild, 'requests').catch(() => null);
+if (fallback) {
+await fallback
+.send({ content: 'Invitation anonyme non délivrée (DM fermé).', allowedMentions: { parse: [] } })
+.catch(() => {});
+}
+}
+return created;
+}
+
+async handleCreateOpen(interaction, tempGroupService) {
+if (!interaction?.guild || !interaction?.user) {
+throw new Error('interaction incomplete');
+}
+if (!tempGroupService?.createTempGroup) {
+throw new Error('temp group service unavailable');
+}
+const created = await tempGroupService.createTempGroup(interaction.guild, {
+name: 'Groupe anonyme ouvert',
+isOpen: true,
+participants: [interaction.user.id],
+authorId: interaction.user.id,
+requester: interaction.user
+});
+const row = new ActionRowBuilder().addComponents(
+new ButtonBuilder().setCustomId(makeId('temp', 'join', created.id)).setLabel('Rejoindre').setStyle(ButtonStyle.Success),
+new ButtonBuilder()
+.setCustomId(makeId('temp', 'spectate', created.id))
+.setLabel('Observer')
+.setStyle(ButtonStyle.Secondary),
+new ButtonBuilder().setCustomId(makeId('temp', 'leave', created.id)).setLabel('Quitter').setStyle(ButtonStyle.Danger)
+);
+const embed = new EmbedBuilder()
+.setTitle('Groupe temporaire anonyme')
+.setDescription('Rejoignez ce groupe pour continuer en privé.')
+.setColor(0x5865f2);
+if (interaction.channel) {
+await interaction.channel.send({ embeds: [embed], components: [row] }).catch(() => {});
+}
+return created;
+}
+
+	async handleMessage(message) {
 		if (!message || !message.guild || message.author.bot) return;
 
 		const zoneId = await this.#findZoneByAnonChannel(message.channelId);
@@ -216,27 +289,27 @@ class AnonService {
 		}
 	}
 
-        async presentOptions(interaction, { message = null } = {}) {
-                const baseText = [
-                        '📣 Les messages envoyés dans ce salon sont relayés anonymement aux zones participantes.',
-                        '🚨 Les abus sont consignés et peuvent entraîner des sanctions.'
-                ];
+	async presentOptions(interaction, { message = null } = {}) {
+		const baseText = [
+			'📣 Les messages envoyés dans ce salon sont relayés anonymement aux zones participantes.',
+			'🚨 Les abus sont consignés et peuvent entraîner des sanctions.'
+		];
 
-                if (message?.url) {
-                        baseText.push(`Message ciblé : ${message.url}`);
-                }
+		if (message?.url) {
+			baseText.push(`Message ciblé : ${message.url}`);
+		}
 
-                const payload = {
-                        content: baseText.join('\n'),
-                        flags: MessageFlags.Ephemeral
-                };
+		const payload = {
+			content: baseText.join('\n'),
+			flags: MessageFlags.Ephemeral
+		};
 
-                if (interaction.deferred || interaction.replied) {
-                        return interaction.followUp(payload);
-                }
+		if (interaction.deferred || interaction.replied) {
+			return interaction.followUp(payload);
+		}
 
-                return interaction.reply(payload);
-        }
+		return interaction.reply(payload);
+	}
 }
 
 module.exports = { AnonService };

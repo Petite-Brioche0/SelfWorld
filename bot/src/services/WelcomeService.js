@@ -8,7 +8,8 @@ ModalBuilder,
 TextInputBuilder,
 TextInputStyle
 } = require('discord.js');
-const { parseId } = require('../utils/ids');
+const { parseId, makeId } = require('../utils/ids');
+const { ensureFallback } = require('../utils/channels');
 
 class WelcomeService {
         constructor(client, db, logger, services = {}) {
@@ -103,11 +104,14 @@ return false;
                         .setDescription('Choisis une option ci-dessous pour commencer.')
                         .setColor(0x5865f2);
 
-                const row = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId('welcome:browse').setLabel('Découvrir les zones').setStyle(ButtonStyle.Primary),
-                        new ButtonBuilder().setCustomId('welcome:joincode').setLabel('Rejoindre via un code').setStyle(ButtonStyle.Secondary),
-                        new ButtonBuilder().setCustomId('welcome:request').setLabel('Demander une zone').setStyle(ButtonStyle.Secondary)
-                );
+const row = new ActionRowBuilder().addComponents(
+new ButtonBuilder().setCustomId(makeId('welcome', 'browse')).setLabel('Découvrir les zones').setStyle(ButtonStyle.Primary),
+new ButtonBuilder()
+.setCustomId(makeId('welcome', 'joincode'))
+.setLabel('Rejoindre via un code')
+.setStyle(ButtonStyle.Secondary),
+new ButtonBuilder().setCustomId(makeId('welcome', 'request')).setLabel('Demander une zone').setStyle(ButtonStyle.Secondary)
+);
 
                 return { embeds: [intro, assistant], components: [row] };
         }
@@ -436,21 +440,33 @@ return false;
                         .setTimestamp(new Date())
                         .setColor(0x5865f2);
 
-                let delivered = false;
-                const ownerId = this.client?.context?.config?.ownerUserId || process.env.OWNER_ID || process.env.OWNER_USER_ID;
-                if (ownerId) {
-                        try {
-                                const ownerUser = await this.client.users.fetch(ownerId);
-                                await ownerUser.send({ embeds: [embed] });
-                                delivered = true;
-                        } catch (err) {
-                                this.logger?.warn({ err, ownerId }, 'Failed to DM owner with zone request');
-                        }
-                }
+let delivered = false;
+const ownerId = this.client?.context?.config?.ownerUserId || process.env.OWNER_ID || process.env.OWNER_USER_ID;
+if (ownerId) {
+try {
+const ownerUser = await this.client.users.fetch(ownerId);
+await ownerUser.send({ embeds: [embed] });
+delivered = true;
+} catch (err) {
+this.logger?.warn({ err, ownerId }, 'Failed to DM owner with zone request');
+}
+}
 
-                if (!delivered) {
-                        this.logger?.info({ name, userId: interaction.user.id }, 'Zone request could not be delivered directly');
-                }
+if (!delivered) {
+this.logger?.info({ name, userId: interaction.user.id }, 'Zone request could not be delivered directly');
+try {
+const guild = await this.client.guilds.fetch(interaction.guildId);
+const fallback = await ensureFallback(guild, 'requests');
+if (fallback) {
+await fallback
+.send({ content: ownerId ? `<@${ownerId}>` : undefined, embeds: [embed] })
+.catch((err) => this.logger?.warn({ err }, 'Failed to send zone request to fallback'));
+if (!delivered) delivered = true;
+}
+} catch (err) {
+this.logger?.warn({ err, guildId: interaction.guildId }, 'Failed to route zone request fallback');
+}
+}
 
                 return this.#sendReply(interaction, {
                         content: 'Merci ! Ta demande a été transmise à l’équipe.'
