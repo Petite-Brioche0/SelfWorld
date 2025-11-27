@@ -1,16 +1,17 @@
 const {
-	EmbedBuilder,
-	ActionRowBuilder,
-	ButtonBuilder,
+EmbedBuilder,
+ActionRowBuilder,
+ButtonBuilder,
 	ButtonStyle,
 	StringSelectMenuBuilder,
 	ModalBuilder,
 	TextInputBuilder,
 	TextInputStyle,
 	ChannelType,
-        PermissionFlagsBits,
-        MessageFlags
+PermissionFlagsBits,
+MessageFlags
 } = require('discord.js');
+const { parseId } = require('../utils/ids');
 
 class PanelService {
 	#schemaReady = false;
@@ -1146,16 +1147,17 @@ class PanelService {
 		return 0x5865f2;
 	}
 
-	async handleSelectMenu(interaction) {
-		const id = interaction.customId || '';
-		if (!id.startsWith('panel:')) return false;
+async handleSelectMenu(interaction) {
+const id = interaction.customId || '';
+const parsed = parseId(id);
+if (!parsed || parsed.namespace !== 'panel') return false;
 
-		const parts = id.split(':');
-		const zoneId = Number(parts[3] || parts.at(-1));
-		if (!zoneId) {
-			await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch(() => { });
-			return true;
-		}
+const parts = parsed.parts;
+const zoneId = Number(parts[2] || parts.at(-1));
+if (!zoneId) {
+await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch(() => { });
+return true;
+}
 
 		const zoneRow = await this.#getZone(zoneId);
 		if (!zoneRow) {
@@ -1354,11 +1356,12 @@ class PanelService {
 		return true;
 	}
 
-	async handleButton(interaction) {
-		const id = interaction.customId || '';
-		if (!id.startsWith('panel:')) return false;
-		const parts = id.split(':');
-		const zoneId = Number(parts[3] || parts.at(-1));
+async handleButton(interaction) {
+const id = interaction.customId || '';
+const parsed = parseId(id);
+if (!parsed || parsed.namespace !== 'panel') return false;
+const parts = parsed.parts;
+const zoneId = Number(parts[2] || parts.at(-1));
 		if (!zoneId) {
 			await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch(() => { });
 			return true;
@@ -1682,11 +1685,12 @@ class PanelService {
 		return true;
 	}
 
-	async handleModal(interaction) {
-		const id = interaction.customId || '';
-		if (!id.startsWith('panel:')) return false;
-		const parts = id.split(':');
-		const zoneId = Number(parts[3] || parts.at(-1));
+async handleModal(interaction) {
+const id = interaction.customId || '';
+const parsed = parseId(id);
+if (!parsed || parsed.namespace !== 'panel') return false;
+const parts = parsed.parts;
+const zoneId = Number(parts[2] || parts.at(-1));
 		if (!zoneId) {
 			await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch(() => { });
 			return true;

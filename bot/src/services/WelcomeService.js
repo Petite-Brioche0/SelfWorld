@@ -1,13 +1,14 @@
 const {
-        ActionRowBuilder,
-        ButtonBuilder,
-        ButtonStyle,
+ActionRowBuilder,
+ButtonBuilder,
+ButtonStyle,
         EmbedBuilder,
         MessageFlags,
-        ModalBuilder,
-        TextInputBuilder,
-        TextInputStyle
+ModalBuilder,
+TextInputBuilder,
+TextInputStyle
 } = require('discord.js');
+const { parseId } = require('../utils/ids');
 
 class WelcomeService {
         constructor(client, db, logger, services = {}) {
@@ -35,49 +36,53 @@ class WelcomeService {
                 throw new Error('Invalid welcome target');
         }
 
-        async handleButton(interaction) {
-                const id = interaction.customId || '';
+async handleButton(interaction) {
+const id = interaction.customId || '';
+const parsed = parseId(id);
+if (!parsed || parsed.namespace !== 'welcome') return false;
 
-                if (id === 'welcome:browse') {
-                        return this.#handleBrowse(interaction, 0, { update: false });
-                }
+const action = parsed.parts[0];
+if (action === 'browse' && parsed.parts.length === 1) {
+return this.#handleBrowse(interaction, 0, { update: false });
+}
 
-                if (id.startsWith('welcome:browse:prev:') || id.startsWith('welcome:browse:next:')) {
-                        const parts = id.split(':');
-                        const page = Number(parts.at(-1));
-                        const targetPage = Number.isFinite(page) ? page : 0;
-                        return this.#handleBrowse(interaction, targetPage, { update: true });
-                }
+if (action === 'browse' && ['prev', 'next'].includes(parsed.parts[1])) {
+const page = Number(parsed.parts.at(-1));
+const targetPage = Number.isFinite(page) ? page : 0;
+return this.#handleBrowse(interaction, targetPage, { update: true });
+}
 
-                if (id.startsWith('welcome:zone:join:')) {
-                        const zoneId = Number(id.split(':').at(-1));
-                        return this.#handleZoneJoin(interaction, zoneId);
-                }
+if (action === 'zone' && parsed.parts[1] === 'join') {
+const zoneId = Number(parsed.parts[2]);
+return this.#handleZoneJoin(interaction, zoneId);
+}
 
-                if (id === 'welcome:joincode') {
-                        return this.#showJoinCodeModal(interaction);
-                }
+if (action === 'joincode') {
+return this.#showJoinCodeModal(interaction);
+}
 
-                if (id === 'welcome:request') {
-                        return this.#showZoneRequestModal(interaction);
-                }
+if (action === 'request') {
+return this.#showZoneRequestModal(interaction);
+}
 
-                return false;
-        }
+return false;
+}
 
-        async handleModal(interaction) {
-                const id = interaction.customId || '';
+async handleModal(interaction) {
+const id = interaction.customId || '';
+const parsed = parseId(id);
+if (!parsed || parsed.namespace !== 'welcome') return false;
 
-                if (id === 'welcome:joincode:modal') {
-                        return this.#handleJoinCodeModal(interaction);
-                }
+if (parsed.parts[0] === 'joincode' && parsed.parts[1] === 'modal') {
+return this.#handleJoinCodeModal(interaction);
+}
 
-                if (id === 'welcome:request:modal') {
-                        return this.#handleZoneRequestModal(interaction);
-                }
+if (parsed.parts[0] === 'request' && parsed.parts[1] === 'modal') {
+return this.#handleZoneRequestModal(interaction);
+}
 
-                return false;
-        }
+return false;
+}
 
         #buildWizardPayload() {
                 const intro = new EmbedBuilder()

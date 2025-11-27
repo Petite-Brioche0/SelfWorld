@@ -16,14 +16,19 @@ class TempGroupService {
 		this.logger = logger;
 	}
 
-	async createTempGroup(guild, { name, isOpen = true, participants = [], spectators = [] } = {}) {
+	async createTempGroup(
+		guild,
+		{ name, isOpen = true, participants = [], spectators = [], authorId = null, requester = null } = {}
+	) {
 		if (!guild) {
 			throw new Error('guild is required');
 		}
 
-		const sanitizedName = typeof name === 'string' && name.trim().length ? name.trim().slice(0, 90) : 'Groupe temporaire';
+		const sanitizedName =
+			typeof name === 'string' && name.trim().length ? name.trim().slice(0, 90) : 'Groupe temporaire';
 		const slug = buildSlug(sanitizedName) || 'temp';
 		const textName = `groupe-${slug}`.slice(0, 100);
+		const normalizedAuthorId = authorId || requester?.id || participants?.[0] || null;
 
 		const botId = this.client.user?.id;
 		if (!botId) {
@@ -115,13 +120,21 @@ class TempGroupService {
 		const connection = await this.db.getConnection();
 		let tempGroupId;
 		try {
-			await connection.beginTransaction();
-			const [insertResult] = await connection.query(
-				`INSERT INTO temp_groups
-					(name, category_id, text_channel_id, voice_channel_id, archived, is_open, created_at, expires_at, last_activity_at)
-				VALUES (?, ?, ?, ?, 0, ?, UTC_TIMESTAMP(), DATE_ADD(UTC_TIMESTAMP(), INTERVAL 72 HOUR), UTC_TIMESTAMP())`,
-				[sanitizedName, category.id, textChannel.id, voiceChannel.id, isOpen ? 1 : 0]
-			);
+				await connection.beginTransaction();
+				const [insertResult] = await connection.query(
+					`INSERT INTO temp_groups
+						(name, category_id, text_channel_id, voice_channel_id, archived, is_open, created_at, expires_at, last_activity_at, author_id)
+					VALUES (?, ?, ?, ?, 0, ?, UTC_TIMESTAMP(), DATE_ADD(UTC_TIMESTAMP(), INTERVAL 72 HOUR), UTC_TIMESTAMP(), ?)`
+					,
+					[
+						sanitizedName,
+						category.id,
+						textChannel.id,
+						voiceChannel.id,
+						isOpen ? 1 : 0,
+						normalizedAuthorId ? String(normalizedAuthorId) : null
+					]
+				);
 			tempGroupId = insertResult.insertId;
 
 			const insertMemberSql = `INSERT INTO temp_group_members (temp_group_id, user_id, role)
