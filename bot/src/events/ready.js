@@ -14,10 +14,23 @@ module.exports = {
 			services.tempGroup.sweepExpired().catch(err => logger.error({ err }, 'sweepExpired failed'));
 		}, 60 * 60 * 1000);
 
+		// Enforce temp group freeze policy every 15 minutes
+		setInterval(() => {
+			services.tempGroup
+				.enforceFreezePolicy(72)
+				.then(() => services.tempGroup.cleanupFreezeVotes())
+				.catch(err => logger.error({ err }, 'tempGroup freeze enforcement failed'));
+		}, 15 * 60 * 1000);
+
 		// Post low-activity alerts daily
 		setInterval(() => {
 			services.activity.postLowActivityAlerts().catch(err => logger.error({ err }, 'activity alerts failed'));
 		}, 24 * 60 * 60 * 1000);
+
+		// Dispatch scheduled announcements/events every minute
+		setInterval(() => {
+			services.event.dispatchDueAnnouncements().catch(err => logger.error({ err }, 'event dispatch failed'));
+		}, 60 * 1000);
 
 		client.user.setPresence({
 			activities: [{ name: 'secure zone ops' }],

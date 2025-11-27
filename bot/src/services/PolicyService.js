@@ -1,18 +1,20 @@
 const crypto = require('node:crypto');
 const {
-        ActionRowBuilder,
-        ButtonBuilder,
-        ButtonStyle,
-        ChannelType,
+ActionRowBuilder,
+ButtonBuilder,
+ButtonStyle,
+ChannelType,
         EmbedBuilder,
         MessageFlags,
         ModalBuilder,
         PermissionFlagsBits,
         TextInputBuilder,
-        TextInputStyle
+TextInputStyle
 } = require('discord.js');
 const { applyZoneOverwrites } = require('../utils/permissions');
 const { validateZoneName, validateZoneDescription, sanitizeName } = require('../utils/validation');
+const { parseId } = require('../utils/ids');
+const { ensureFallback } = require('../utils/channels');
 
 const POLICY_VALUES = new Set(['open', 'ask', 'closed']);
 const ASK_MODES = new Set(['request', 'invite', 'both']);
@@ -55,19 +57,19 @@ class PolicyService {
                 }
         }
 
-        async handleApprovalButton(interaction) {
-                const parts = interaction.customId.split(':');
-                if (parts.length < 4) {
-                        await interaction.reply({
-                                content: 'Action invalide.',
-                                flags: MessageFlags.Ephemeral
-                        }).catch(() => {});
-                        return true;
-                }
+async handleApprovalButton(interaction) {
+const parsed = parseId(interaction.customId);
+if (!parsed || parsed.namespace !== 'zone' || parsed.parts.length < 3) {
+await interaction.reply({
+content: 'Action invalide.',
+flags: MessageFlags.Ephemeral
+}).catch(() => {});
+return true;
+}
 
-                const action = parts[1];
-                const zoneId = Number(parts[2]);
-                const targetUserId = parts[3];
+const action = parsed.parts[0];
+const zoneId = Number(parsed.parts[1]);
+const targetUserId = parsed.parts[2];
 
                 if (!zoneId || !targetUserId || !['approve', 'reject'].includes(action)) {
                         await interaction.reply({
@@ -254,17 +256,17 @@ class PolicyService {
                 return true;
         }
 
-        async handleCreationRequestButton(interaction) {
-                await this.#ensureSchema();
+async handleCreationRequestButton(interaction) {
+await this.#ensureSchema();
 
-                const parts = interaction.customId.split(':');
-                if (parts.length < 3) {
-                        await interaction.reply({ content: 'Action invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
-                        return true;
-                }
+const parsed = parseId(interaction.customId);
+if (!parsed || parsed.namespace !== 'req' || parsed.parts.length < 2) {
+await interaction.reply({ content: 'Action invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
+return true;
+}
 
-                const action = parts[1];
-                const requestId = Number(parts[2]);
+const action = parsed.parts[0];
+const requestId = Number(parsed.parts[1]);
                 if (!requestId || !['accept', 'deny', 'editaccept'].includes(action)) {
                         await interaction.reply({ content: 'Action invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
                         return true;
@@ -384,16 +386,16 @@ class PolicyService {
                 return true;
         }
 
-        async handleCreationRequestModal(interaction) {
-                await this.#ensureSchema();
+async handleCreationRequestModal(interaction) {
+await this.#ensureSchema();
 
-                const parts = interaction.customId.split(':');
-                if (parts.length < 3) {
-                        await interaction.reply({ content: 'Action invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
-                        return true;
-                }
+const parsed = parseId(interaction.customId);
+if (!parsed || parsed.namespace !== 'req' || parsed.parts.length < 2) {
+await interaction.reply({ content: 'Action invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
+return true;
+}
 
-                const requestId = Number(parts[2]);
+const requestId = Number(parsed.parts[1]);
                 if (!requestId) {
                         await interaction.reply({ content: 'Demande invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
                         return true;
@@ -462,10 +464,12 @@ class PolicyService {
                 return true;
         }
 
-        async handlePolicySelect(interaction) {
-                const [_, __, action, zoneIdRaw] = interaction.customId.split(':');
-                if (action !== 'set') return false;
-                const zoneId = Number(zoneIdRaw);
+async handlePolicySelect(interaction) {
+const parsed = parseId(interaction.customId);
+if (!parsed || parsed.namespace !== 'panel' || parsed.parts[0] !== 'policy') return false;
+const action = parsed.parts[1];
+if (action !== 'set') return false;
+const zoneId = Number(parsed.parts[2]);
                 if (!zoneId || !interaction.values?.length) {
                         await interaction.reply({ content: 'Sélection invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
                         return true;
@@ -505,13 +509,14 @@ class PolicyService {
                 return true;
         }
 
-        async handleProfileButton(interaction) {
-                const parts = interaction.customId.split(':');
-                const zoneId = Number(parts.at(-1));
-                if (!zoneId) {
-                        await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
-                        return true;
-                }
+async handleProfileButton(interaction) {
+const parsed = parseId(interaction.customId);
+if (!parsed || parsed.namespace !== 'panel') return false;
+const zoneId = Number(parsed.parts.at(-1));
+if (!zoneId) {
+await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
+return true;
+}
                 const zone = await this.#getZone(zoneId);
                 if (!zone) {
                         await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral }).catch(() => {});
@@ -531,13 +536,14 @@ class PolicyService {
                 return true;
         }
 
-        async handleProfileModal(interaction) {
-                const parts = interaction.customId.split(':');
-                const zoneId = Number(parts.at(-1));
-                if (!zoneId) {
-                        await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
-                        return true;
-                }
+async handleProfileModal(interaction) {
+const parsed = parseId(interaction.customId);
+if (!parsed || parsed.namespace !== 'panel') return false;
+const zoneId = Number(parsed.parts.at(-1));
+if (!zoneId) {
+await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
+return true;
+}
 
                 const zone = await this.#getZone(zoneId);
                 if (!zone) {
@@ -575,8 +581,10 @@ class PolicyService {
                 return true;
         }
 
-        async handleAskModeSelect(interaction) {
-                const zoneId = Number(interaction.customId.split(':').at(-1));
+async handleAskModeSelect(interaction) {
+const parsed = parseId(interaction.customId);
+if (!parsed || parsed.namespace !== 'panel') return false;
+const zoneId = Number(parsed.parts.at(-1));
                 if (!zoneId) {
                         await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
                         return true;
@@ -619,8 +627,10 @@ class PolicyService {
                 return true;
         }
 
-        async handleApproverSelect(interaction) {
-                const zoneId = Number(interaction.customId.split(':').at(-1));
+async handleApproverSelect(interaction) {
+const parsed = parseId(interaction.customId);
+if (!parsed || parsed.namespace !== 'panel') return false;
+const zoneId = Number(parsed.parts.at(-1));
                 if (!zoneId) {
                         await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
                         return true;
@@ -663,8 +673,10 @@ class PolicyService {
                 return true;
         }
 
-        async handleGenerateCode(interaction) {
-                const zoneId = Number(interaction.customId.split(':').at(-1));
+async handleGenerateCode(interaction) {
+const parsed = parseId(interaction.customId);
+if (!parsed || parsed.namespace !== 'panel') return false;
+const zoneId = Number(parsed.parts.at(-1));
                 if (!zoneId) {
                         await interaction.reply({ content: 'Zone invalide.', flags: MessageFlags.Ephemeral }).catch(() => {});
                         return true;
@@ -1367,22 +1379,40 @@ class PolicyService {
                         }
                 }
 
-                if (!message && request.guild_id) {
-                        const channelId = await this.#getRequestsChannelId(request.guild_id);
-                        if (channelId) {
-                                try {
-                                        const channel = await this.client.channels.fetch(channelId);
-                                        if (channel?.isTextBased?.()) {
-                                                const content = ownerId ? `<@${ownerId}>` : null;
-                                                message = await channel
-                                                        .send({ content: content || undefined, embeds: [embed], components })
-                                                        .catch(() => null);
-                                        }
-                                } catch (err) {
-                                        this.logger?.warn({ err, channelId }, 'Failed to forward creation request to channel');
-                                }
-                        }
-                }
+						if (!message && request.guild_id) {
+				const channelId = await this.#getRequestsChannelId(request.guild_id);
+				if (channelId) {
+					try {
+						const channel = await this.client.channels.fetch(channelId);
+						if (channel?.isTextBased?.()) {
+							const content = ownerId ? `<@${ownerId}>` : null;
+							message = await channel
+								.send({ content: content || undefined, embeds: [embed], components })
+								.catch(() => null);
+						}
+					} catch (err) {
+						this.logger?.warn({ err, channelId }, 'Failed to forward creation request to channel');
+					}
+				}
+
+				if (!message) {
+					try {
+						const guild = await this.client.guilds.fetch(String(request.guild_id)).catch(() => null);
+						if (guild) {
+							const fallback = await ensureFallback(guild, 'requests').catch(() => null);
+							if (fallback) {
+								const content = ownerId ? `<@${ownerId}>` : null;
+								message = await fallback
+									.send({ content: content || undefined, embeds: [embed], components })
+									.catch(() => null);
+							}
+						}
+					} catch (err) {
+						this.logger?.warn({ err, guildId: request.guild_id }, 'Failed to deliver request via fallback');
+					}
+				}
+			}
+
 
                 if (message) {
                         await this.db
