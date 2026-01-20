@@ -14,6 +14,9 @@ function resolveCooldown(interaction) {
 
         if (interaction.isModalSubmit()) {
                 const id = interaction.customId || '';
+                if (id.startsWith('staff:')) {
+                        return { key: 'staff.modal', seconds: DEFAULT_THROTTLE_SECONDS };
+                }
                 if (id.startsWith('zone:request:') || id.startsWith('welcome:request:modal')) {
                         return { key: 'zone.request.create', seconds: 180 };
                 }
@@ -34,6 +37,9 @@ function resolveCooldown(interaction) {
 
         if (interaction.isButton()) {
                 const id = interaction.customId || '';
+                if (id.startsWith('staff:')) {
+                        return { key: 'staff.button', seconds: 3 };
+                }
                 if (id.startsWith('panel:refresh:')) {
                         return { key: 'panel.refresh', seconds: 5 };
                 }
@@ -201,6 +207,10 @@ module.exports = {
                                         await services.welcome.handleButton(interaction);
                                         return;
                                 }
+                                if (id.startsWith('staff:')) {
+                                        await services.staffPanel?.handleButton?.(interaction);
+                                        return;
+                                }
                                 if (id.startsWith('panel:policy:profile:')) {
                                         await services.policy.handleProfileButton(interaction);
                                         return;
@@ -224,11 +234,11 @@ module.exports = {
                                         });
                                         return;
                                 }
-                                if (id.startsWith('temp:extend:') || id.startsWith('temp:delete:')) {
-                                        await services.tempGroup.handleArchiveButtons(interaction);
+                                if (id.startsWith('temp:')) {
+                                        await services.tempGroup.handleButton(interaction);
                                         return;
                                 }
-                                if (id.startsWith('event:join:')) {
+                                if (id.startsWith('event:join:') || id.startsWith('event:spectate:')) {
                                         await services.event.handleJoinButton(interaction);
                                         return;
                                 }
@@ -240,6 +250,14 @@ module.exports = {
 
                         if (interaction.type === InteractionType.ModalSubmit) {
                                 const id = customId;
+                                if (id.startsWith('temp:')) {
+                                        await services.tempGroup.handleModal(interaction);
+                                        return;
+                                }
+                                if (id.startsWith('staff:')) {
+                                        await services.staffPanel?.handleModal?.(interaction);
+                                        return;
+                                }
                                 if (id.startsWith('req:editaccept:')) {
                                         await services.policy.handleCreationRequestModal(interaction);
                                         return;

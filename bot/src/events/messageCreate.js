@@ -8,6 +8,15 @@ module.exports = {
 		const services = client.context.services || {};
 		const logger = client.context.logger;
 
+		const staffPanel = services.staffPanel;
+		if (staffPanel?.consumeImageMessage) {
+			const handled = await staffPanel.consumeImageMessage(message).catch((error) => {
+				logger?.warn({ err: error, messageId: message.id }, 'Staff image ingestion failed');
+				return false;
+			});
+			if (handled) return;
+		}
+
 		const anon = services.anon;
 		if (anon?.handleMessage) {
 			await anon.handleMessage(message).catch((error) => {

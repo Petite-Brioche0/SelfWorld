@@ -89,6 +89,16 @@ CREATE TABLE IF NOT EXISTS temp_groups (
 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 name VARCHAR(100) NOT NULL,
 category_id VARCHAR(32) NOT NULL,
+guild_id VARCHAR(32) NULL,
+text_channel_id VARCHAR(32) NULL,
+voice_channel_id VARCHAR(32) NULL,
+panel_channel_id VARCHAR(32) NULL,
+panel_members_message_id VARCHAR(32) NULL,
+panel_channels_message_id VARCHAR(32) NULL,
+panel_event_message_id VARCHAR(32) NULL,
+panel_message_id VARCHAR(32) NULL,
+created_by VARCHAR(32) NULL,
+event_id BIGINT UNSIGNED NULL,
 archived BOOLEAN NOT NULL DEFAULT FALSE,
 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 expires_at DATETIME NOT NULL
@@ -97,6 +107,7 @@ expires_at DATETIME NOT NULL
 CREATE TABLE IF NOT EXISTS temp_group_members (
 temp_group_id BIGINT UNSIGNED NOT NULL,
 user_id VARCHAR(32) NOT NULL,
+role ENUM('participant','spectator') NOT NULL DEFAULT 'participant',
 PRIMARY KEY(temp_group_id, user_id),
 FOREIGN KEY(temp_group_id) REFERENCES temp_groups(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -104,7 +115,19 @@ FOREIGN KEY(temp_group_id) REFERENCES temp_groups(id) ON DELETE CASCADE
 CREATE TABLE IF NOT EXISTS events (
 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 name VARCHAR(120) NOT NULL,
-status ENUM('draft','running','ended') NOT NULL DEFAULT 'draft',
+guild_id VARCHAR(32) NULL,
+description TEXT NULL,
+created_by VARCHAR(32) NULL,
+message_content TEXT NULL,
+embed_title VARCHAR(256) NULL,
+embed_color VARCHAR(7) NULL,
+embed_image VARCHAR(500) NULL,
+game VARCHAR(120) NULL,
+min_participants INT NULL,
+max_participants INT NULL,
+temp_group_id BIGINT UNSIGNED NULL,
+status ENUM('draft','scheduled','running','ended') NOT NULL DEFAULT 'draft',
+scheduled_at DATETIME NULL,
 starts_at DATETIME NULL,
 ends_at DATETIME NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -113,10 +136,28 @@ CREATE TABLE IF NOT EXISTS event_participants (
 event_id BIGINT UNSIGNED NOT NULL,
 user_id VARCHAR(32) NOT NULL,
 zone_id BIGINT UNSIGNED NOT NULL,
+role ENUM('participant','spectator') NOT NULL DEFAULT 'participant',
 joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 PRIMARY KEY(event_id, user_id),
 FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE,
 FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS staff_announcements (
+id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+guild_id VARCHAR(32) NOT NULL,
+author_id VARCHAR(32) NOT NULL,
+content TEXT NULL,
+embed_title VARCHAR(256) NULL,
+embed_description TEXT NULL,
+embed_color VARCHAR(7) NULL,
+embed_image VARCHAR(500) NULL,
+scheduled_at DATETIME NULL,
+status ENUM('draft','scheduled','sent','failed') NOT NULL DEFAULT 'draft',
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+sent_at DATETIME NULL,
+INDEX ix_guild (guild_id),
+INDEX ix_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS zone_activity (
@@ -135,6 +176,7 @@ guild_id VARCHAR(32) PRIMARY KEY,
 anon_admin_channel_id VARCHAR(32) NULL,
 requests_channel_id VARCHAR(32) NULL,
 events_admin_channel_id VARCHAR(32) NULL,
+events_admin_message_id VARCHAR(32) NULL,
 journal_channel_id VARCHAR(32) NULL,
 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

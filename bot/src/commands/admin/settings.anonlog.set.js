@@ -11,7 +11,9 @@ module.exports = {
                 .addChannelOption(o => o.setName('channel').setDescription('Salon #public-anonyme').addChannelTypes(ChannelType.GuildText).setRequired(true)),
 	async execute(interaction, ctx) {
 		const ch = interaction.options.getChannel('channel', true);
-                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+		if (!interaction.deferred && !interaction.replied) {
+			await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+		}
 
 		await ctx.pool.query(
 			'INSERT INTO settings (guild_id, anon_admin_channel_id, created_at) VALUES (?, ?, NOW()) ON DUPLICATE KEY UPDATE anon_admin_channel_id = VALUES(anon_admin_channel_id)',

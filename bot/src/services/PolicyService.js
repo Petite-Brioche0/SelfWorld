@@ -494,6 +494,7 @@ class PolicyService {
 
                 try {
                         await this.setPolicy(zoneId, nextPolicy, interaction.user.id);
+                        await this.#syncPolicyPanelMessage(interaction, zoneId);
                         await this.#refreshPanel(zoneId);
                         await interaction.followUp({
                                 content: `Politique mise à jour sur **${nextPolicy}**.`,
@@ -1506,6 +1507,36 @@ class PolicyService {
                 } catch (err) {
                         this.logger?.warn({ err, zoneId }, 'Failed to refresh policy panel');
                 }
+        }
+
+        async #syncPolicyPanelMessage(interaction, zoneId) {
+                if (!interaction?.message?.id || !zoneId) return false;
+
+                let updated = false;
+                if (this.panelService?.renderPolicy && typeof interaction.message.edit === 'function') {
+                        const zone = await this.#getZone(zoneId);
+                        if (!zone) return false;
+                        try {
+                                const { embed, components } = await this.panelService.renderPolicy(zone);
+                                await interaction.message.edit({ embeds: [embed], components });
+                                updated = true;
+                        } catch (err) {
+                                this.logger?.warn({ err, zoneId }, 'Failed to update policy panel message from interaction');
+                        }
+                }
+
+                try {
+                        await this.db.query(
+                                'INSERT INTO panel_messages (zone_id, policy_msg_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE policy_msg_id = VALUES(policy_msg_id)',
+                                [zoneId, interaction.message.id]
+                        );
+                } catch (err) {
+                        if (err?.code !== 'ER_NO_SUCH_TABLE') {
+                                this.logger?.warn({ err, zoneId }, 'Failed to sync policy panel message id');
+                        }
+                }
+
+                return updated;
         }
 
         #buildProfileModal(zone) {

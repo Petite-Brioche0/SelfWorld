@@ -15,6 +15,7 @@ const { EventService } = require('./services/EventService');
 const { ActivityService } = require('./services/ActivityService');
 const { TempGroupService } = require('./services/TempGroupService');
 const { PanelService } = require('./services/PanelService');
+const { StaffPanelService } = require('./services/StaffPanelService');
 const { WelcomeService } = require('./services/WelcomeService');
 const { ThrottleService } = require('./services/ThrottleService');
 
@@ -65,10 +66,11 @@ const client = new Client({
                         policy: policyService,
                         activity: new ActivityService(client, pool),
                         anon: new AnonService(client, pool, logger),
-                        event: new EventService(client, pool),
-                        tempGroup: new TempGroupService(client, pool)
+                        event: new EventService(client, pool, logger),
+                        tempGroup: new TempGroupService(client, pool, logger)
                 };
                 services.panel = new PanelService(client, pool, logger);
+                services.staffPanel = new StaffPanelService(client, pool, logger, services);
                 services.throttle = new ThrottleService();
                 zoneService.setPanelService(services.panel);
                 policyService.setPanelService(services.panel);
