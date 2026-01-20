@@ -1030,36 +1030,38 @@ class PolicyService {
                 if (this.#schemaReady) return;
 
                 await this.db.query(`CREATE TABLE IF NOT EXISTS zone_invite_codes (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        zone_id INT NOT NULL,
+                        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                        zone_id BIGINT UNSIGNED NOT NULL,
                         code VARCHAR(16) NOT NULL UNIQUE,
-                        created_by VARCHAR(20) NOT NULL,
+                        created_by VARCHAR(32) NOT NULL,
                         expires_at DATETIME NULL,
                         max_uses INT NULL,
                         uses INT NOT NULL DEFAULT 0,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        INDEX ix_zone (zone_id)
+                        INDEX ix_zone (zone_id),
+                        FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
 
                 await this.db.query(`CREATE TABLE IF NOT EXISTS zone_join_requests (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        zone_id INT NOT NULL,
-                        user_id VARCHAR(20) NOT NULL,
+                        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                        zone_id BIGINT UNSIGNED NOT NULL,
+                        user_id VARCHAR(32) NOT NULL,
                         status ENUM('pending','accepted','declined','expired') NOT NULL DEFAULT 'pending',
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        decided_by VARCHAR(20) NULL,
+                        decided_by VARCHAR(32) NULL,
                         decided_at DATETIME NULL,
                         note TEXT NULL,
-                        message_channel_id VARCHAR(20) NULL,
-                        message_id VARCHAR(20) NULL,
-                        INDEX ix_zone_user (zone_id, user_id)
+                        message_channel_id VARCHAR(32) NULL,
+                        message_id VARCHAR(32) NULL,
+                        INDEX ix_zone_user (zone_id, user_id),
+                        FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
 
                 await this.db.query(`CREATE TABLE IF NOT EXISTS zone_creation_requests (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        guild_id VARCHAR(20) NOT NULL,
-                        user_id VARCHAR(20) NOT NULL,
-                        owner_user_id VARCHAR(20) NOT NULL,
+                        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                        guild_id VARCHAR(32) NOT NULL,
+                        user_id VARCHAR(32) NOT NULL,
+                        owner_user_id VARCHAR(32) NOT NULL,
                         name VARCHAR(100) NOT NULL,
                         description TEXT NULL,
                         extras TEXT NULL,
@@ -1068,13 +1070,14 @@ class PolicyService {
                         validation_errors TEXT NULL,
                         message_channel_id VARCHAR(32) NULL,
                         message_id VARCHAR(32) NULL,
-                        zone_id INT NULL,
+                        zone_id BIGINT UNSIGNED NULL,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         decided_at DATETIME NULL,
-                        decided_by VARCHAR(20) NULL,
+                        decided_by VARCHAR(32) NULL,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                         INDEX ix_guild (guild_id),
-                        INDEX ix_status (status)
+                        INDEX ix_status (status),
+                        FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE SET NULL
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
 
                 const addColumnIfMissing = async (table, column, ddl) => {
@@ -1125,9 +1128,9 @@ class PolicyService {
                 await addColumnIfMissing(
                         'zone_join_requests',
                         'message_channel_id',
-                        'message_channel_id VARCHAR(20) NULL'
+                        'message_channel_id VARCHAR(32) NULL'
                 );
-                await addColumnIfMissing('zone_join_requests', 'message_id', 'message_id VARCHAR(20) NULL');
+                await addColumnIfMissing('zone_join_requests', 'message_id', 'message_id VARCHAR(32) NULL');
 
                 await addColumnIfMissing(
                         'panel_messages',
@@ -1143,13 +1146,13 @@ class PolicyService {
                 await addColumnIfMissing(
                         'zone_creation_requests',
                         'owner_user_id',
-                        "owner_user_id VARCHAR(20) NOT NULL DEFAULT ''"
+                        "owner_user_id VARCHAR(32) NOT NULL DEFAULT ''"
                 );
                 await addColumnIfMissing('zone_creation_requests', 'extras', 'extras TEXT NULL');
                 await addColumnIfMissing('zone_creation_requests', 'validation_errors', 'validation_errors TEXT NULL');
                 await addColumnIfMissing('zone_creation_requests', 'message_channel_id', 'message_channel_id VARCHAR(32) NULL');
                 await addColumnIfMissing('zone_creation_requests', 'message_id', 'message_id VARCHAR(32) NULL');
-                await addColumnIfMissing('zone_creation_requests', 'zone_id', 'zone_id INT NULL');
+                await addColumnIfMissing('zone_creation_requests', 'zone_id', 'zone_id BIGINT UNSIGNED NULL');
 
                 this.#schemaReady = true;
         }

@@ -1882,13 +1882,16 @@ class PanelService {
         async #ensureSchema() {
                 if (this.#schemaReady) return;
                 await this.db.query(`CREATE TABLE IF NOT EXISTS panel_messages (
-                        zone_id INT NOT NULL PRIMARY KEY,
+                        zone_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
                         refresh_msg_id VARCHAR(32) NULL,
                         members_msg_id VARCHAR(32) NULL,
                         roles_msg_id VARCHAR(32) NULL,
                         channels_msg_id VARCHAR(32) NULL,
                         policy_msg_id VARCHAR(32) NULL,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        code_anchor_channel_id VARCHAR(32) NULL,
+                        code_anchor_message_id VARCHAR(32) NULL,
+                        FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
                 if (!(await this.#columnExists('panel_messages', 'refresh_msg_id'))) {
                         await this.db
@@ -1896,25 +1899,28 @@ class PanelService {
                                 .catch(() => {});
                 }
                 await this.db.query(`CREATE TABLE IF NOT EXISTS panel_message_registry (
-                        zone_id INT NOT NULL,
+                        zone_id BIGINT UNSIGNED NOT NULL,
                         kind VARCHAR(32) NOT NULL,
                         message_id VARCHAR(32) NOT NULL,
-                        PRIMARY KEY(zone_id, kind)
+                        PRIMARY KEY(zone_id, kind),
+                        FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
                 await this.db.query(`CREATE TABLE IF NOT EXISTS zone_roles (
                         id INT AUTO_INCREMENT PRIMARY KEY,
-                        zone_id INT NOT NULL,
-                        role_id VARCHAR(20) NOT NULL,
+                        zone_id BIGINT UNSIGNED NOT NULL,
+                        role_id VARCHAR(32) NOT NULL,
                         name VARCHAR(64) NOT NULL,
                         color VARCHAR(7) NULL,
                         UNIQUE KEY uq_zone_role (zone_id, role_id),
-                        INDEX ix_zone (zone_id)
+                        INDEX ix_zone (zone_id),
+                        FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
                 await this.db.query(`CREATE TABLE IF NOT EXISTS zone_member_roles (
-                        zone_id INT NOT NULL,
+                        zone_id BIGINT UNSIGNED NOT NULL,
                         role_id VARCHAR(32) NOT NULL,
                         user_id VARCHAR(32) NOT NULL,
-                        PRIMARY KEY(zone_id, role_id, user_id)
+                        PRIMARY KEY(zone_id, role_id, user_id),
+                        FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
                 this.#schemaReady = true;
         }

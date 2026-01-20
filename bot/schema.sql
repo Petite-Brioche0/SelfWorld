@@ -13,7 +13,14 @@ voice_id VARCHAR(32) NOT NULL,
 role_owner_id VARCHAR(32) NOT NULL,
 role_member_id VARCHAR(32) NOT NULL,
 role_muted_id VARCHAR(32) NULL,
-policy ENUM('closed','ask','invite','open') NOT NULL DEFAULT 'closed',
+policy ENUM('closed','ask','open') NOT NULL DEFAULT 'closed',
+ask_join_mode ENUM('request','invite','both') NULL,
+ask_approver_mode ENUM('owner','members') NULL,
+profile_title VARCHAR(100) NULL,
+profile_desc TEXT NULL,
+profile_tags JSON NULL,
+profile_color VARCHAR(7) NULL,
+profile_dynamic TINYINT(1) NOT NULL DEFAULT 0,
 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 UNIQUE KEY uniq_guild_slug (guild_id, slug)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -45,33 +52,25 @@ FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE CASCADE,
 UNIQUE KEY uniq_code (code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS join_requests (
-id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-zone_id BIGINT UNSIGNED NOT NULL,
-applicant_user_id VARCHAR(32) NOT NULL,
-status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
-message_id VARCHAR(32) NULL,
-created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 CREATE TABLE IF NOT EXISTS anon_channels (
 zone_id BIGINT UNSIGNED NOT NULL,
 source_channel_id VARCHAR(32) NOT NULL,
 webhook_id VARCHAR(32) NOT NULL,
 webhook_token VARCHAR(255) NOT NULL,
 PRIMARY KEY(zone_id),
+UNIQUE KEY uniq_source_channel (source_channel_id),
 FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS zone_roles (
 id INT AUTO_INCREMENT PRIMARY KEY,
-zone_id INT NOT NULL,
-role_id VARCHAR(20) NOT NULL,
+zone_id BIGINT UNSIGNED NOT NULL,
+role_id VARCHAR(32) NOT NULL,
 name VARCHAR(64) NOT NULL,
 color VARCHAR(7) NULL,
 UNIQUE KEY uq_zone_roleid (zone_id, role_id),
-INDEX ix_zone (zone_id)
+INDEX ix_zone (zone_id),
+FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS anon_logs (
@@ -241,10 +240,73 @@ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS panel_messages (
-zone_id INT NOT NULL PRIMARY KEY,
+zone_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+refresh_msg_id VARCHAR(32) NULL,
 members_msg_id VARCHAR(32) NULL,
 roles_msg_id VARCHAR(32) NULL,
 channels_msg_id VARCHAR(32) NULL,
 policy_msg_id VARCHAR(32) NULL,
-updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+code_anchor_channel_id VARCHAR(32) NULL,
+code_anchor_message_id VARCHAR(32) NULL,
+FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS panel_message_registry (
+zone_id BIGINT UNSIGNED NOT NULL,
+kind VARCHAR(32) NOT NULL,
+message_id VARCHAR(32) NOT NULL,
+PRIMARY KEY(zone_id, kind),
+FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS zone_invite_codes (
+id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+zone_id BIGINT UNSIGNED NOT NULL,
+code VARCHAR(16) NOT NULL UNIQUE,
+created_by VARCHAR(32) NOT NULL,
+expires_at DATETIME NULL,
+max_uses INT NULL,
+uses INT NOT NULL DEFAULT 0,
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+INDEX ix_zone (zone_id),
+FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS zone_join_requests (
+id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+zone_id BIGINT UNSIGNED NOT NULL,
+user_id VARCHAR(32) NOT NULL,
+status ENUM('pending','accepted','declined','expired') NOT NULL DEFAULT 'pending',
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+decided_by VARCHAR(32) NULL,
+decided_at DATETIME NULL,
+note TEXT NULL,
+message_channel_id VARCHAR(32) NULL,
+message_id VARCHAR(32) NULL,
+INDEX ix_zone_user (zone_id, user_id),
+FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS zone_creation_requests (
+id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+guild_id VARCHAR(32) NOT NULL,
+user_id VARCHAR(32) NOT NULL,
+owner_user_id VARCHAR(32) NOT NULL,
+name VARCHAR(100) NOT NULL,
+description TEXT NULL,
+extras TEXT NULL,
+policy ENUM('open','ask','closed') NOT NULL DEFAULT 'ask',
+status ENUM('pending','accepted','denied') NOT NULL DEFAULT 'pending',
+validation_errors TEXT NULL,
+message_channel_id VARCHAR(32) NULL,
+message_id VARCHAR(32) NULL,
+zone_id BIGINT UNSIGNED NULL,
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+decided_at DATETIME NULL,
+decided_by VARCHAR(32) NULL,
+updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+INDEX ix_guild (guild_id),
+INDEX ix_status (status),
+FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
