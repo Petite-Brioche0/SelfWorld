@@ -112,6 +112,17 @@ PRIMARY KEY(temp_group_id, user_id),
 FOREIGN KEY(temp_group_id) REFERENCES temp_groups(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS temp_group_channels (
+id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+temp_group_id BIGINT UNSIGNED NOT NULL,
+channel_id VARCHAR(32) NOT NULL,
+kind ENUM('text','voice') NOT NULL DEFAULT 'text',
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+UNIQUE KEY uniq_channel (channel_id),
+INDEX ix_group (temp_group_id),
+FOREIGN KEY(temp_group_id) REFERENCES temp_groups(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS events (
 id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 name VARCHAR(120) NOT NULL,
@@ -141,6 +152,54 @@ joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 PRIMARY KEY(event_id, user_id),
 FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE,
 FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS event_messages (
+event_id BIGINT UNSIGNED NOT NULL,
+channel_id VARCHAR(32) NOT NULL,
+message_id VARCHAR(32) NOT NULL,
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+PRIMARY KEY(event_id, channel_id),
+UNIQUE KEY uniq_message (message_id),
+INDEX ix_event (event_id),
+FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS hub_channels (
+guild_id VARCHAR(32) NOT NULL,
+user_id VARCHAR(32) NOT NULL,
+channel_id VARCHAR(32) NOT NULL,
+join_message_id VARCHAR(32) NULL,
+request_message_id VARCHAR(32) NULL,
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+PRIMARY KEY (guild_id, user_id),
+UNIQUE KEY uniq_channel (channel_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS hub_requests (
+id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+guild_id VARCHAR(32) NOT NULL,
+user_id VARCHAR(32) NOT NULL,
+kind ENUM('announcement','event') NOT NULL,
+status ENUM('draft','pending','accepted','denied') NOT NULL DEFAULT 'draft',
+content TEXT NULL,
+embed_title VARCHAR(256) NULL,
+embed_description TEXT NULL,
+embed_color VARCHAR(7) NULL,
+embed_image VARCHAR(500) NULL,
+message_content TEXT NULL,
+game VARCHAR(120) NULL,
+min_participants INT NULL,
+max_participants INT NULL,
+scheduled_at DATETIME NULL,
+preview_channel_id VARCHAR(32) NULL,
+preview_message_id VARCHAR(32) NULL,
+review_channel_id VARCHAR(32) NULL,
+review_message_id VARCHAR(32) NULL,
+decided_by VARCHAR(32) NULL,
+decided_at DATETIME NULL,
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+updated_at TIMESTAMP NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS staff_announcements (

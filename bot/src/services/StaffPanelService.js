@@ -75,6 +75,7 @@ class StaffPanelService {
 				if (event) {
 					const preview = this.#buildEventPreview(event, { ephemeral: false });
 					await message.reply(preview).catch(() => {});
+					await this.refreshEventMessages(event.id).catch(() => {});
 				}
 				return true;
 			}
@@ -289,6 +290,96 @@ class StaffPanelService {
 		} finally {
 			this.#processing = false;
 		}
+	}
+
+	async submitAnnouncementFromRequest(request, actorId) {
+		await this.#ensureSchema();
+		if (!request?.guild_id) throw new Error('Guild missing');
+
+		const now = Date.now();
+		let scheduledAt = request.scheduled_at ? new Date(request.scheduled_at) : null;
+		if (!scheduledAt || Number.isNaN(scheduledAt.getTime()) || scheduledAt.getTime() <= now) {
+			scheduledAt = null;
+		}
+
+		const payload = {
+			guild_id: request.guild_id,
+			author_id: request.user_id || actorId,
+			content: request.content || null,
+			embed_title: request.embed_title || null,
+			embed_description: request.embed_description || null,
+			embed_color: request.embed_color || null,
+			embed_image: request.embed_image || null,
+			scheduled_at: scheduledAt
+		};
+
+		const id = await this.#insertAnnouncement(payload);
+		const announcement = await this.#getAnnouncement(id);
+		if (scheduledAt) {
+			await this.#scheduleAnnouncement(id, scheduledAt, actorId);
+		} else {
+			await this.#sendAnnouncementNow(announcement, actorId);
+		}
+		return id;
+	}
+
+	async submitEventFromRequest(request, actorId) {
+		await this.#ensureSchema();
+		if (!request?.guild_id) throw new Error('Guild missing');
+
+		const now = Date.now();
+		let scheduledAt = request.scheduled_at ? new Date(request.scheduled_at) : null;
+		if (!scheduledAt || Number.isNaN(scheduledAt.getTime()) || scheduledAt.getTime() <= now) {
+			scheduledAt = null;
+		}
+
+		const payload = {
+			guild_id: request.guild_id,
+			created_by: request.user_id || actorId,
+			name: request.embed_title || 'Evenement',
+			description: request.embed_description || null,
+			message_content: request.message_content || null,
+			embed_color: request.embed_color || null,
+			embed_image: request.embed_image || null,
+			game: request.game || null,
+			min_participants: request.min_participants || null,
+			max_participants: request.max_participants || null,
+			scheduled_at: scheduledAt
+		};
+
+		const id = await this.#insertEventDraft(payload);
+		const event = await this.#getEventDraft(id);
+		if (scheduledAt) {
+			await this.#scheduleEvent(id, scheduledAt, actorId);
+		} else {
+			await this.#activateEvent(event, actorId);
+		}
+
+		const updated = await this.#getEventDraft(id);
+		const tempGroupService = this.services?.tempGroup || this.client?.context?.services?.tempGroup;
+		if (updated?.temp_group_id && request.user_id && tempGroupService?.setMemberRole) {
+			try {
+				if (tempGroupService?.setGroupOwner) {
+					await tempGroupService.setGroupOwner(updated.temp_group_id, request.user_id);
+				}
+				await tempGroupService.setMemberRole(updated.temp_group_id, request.user_id, 'participant', {
+					guildId: request.guild_id,
+					allowPanel: true
+				});
+			} catch (err) {
+				this.logger?.warn({ err, eventId: id, userId: request.user_id }, 'Failed to grant temp group access');
+			}
+			if (tempGroupService?.grantPanelAccess) {
+				try {
+					await tempGroupService.grantPanelAccess(updated.temp_group_id, request.user_id, {
+						guildId: request.guild_id
+					});
+				} catch (err) {
+					this.logger?.warn({ err, eventId: id, userId: request.user_id }, 'Failed to grant panel access');
+				}
+			}
+		}
+		return id;
 	}
 
 	// ==== Modals
@@ -756,6 +847,7 @@ class StaffPanelService {
 
 			const preview = this.#buildEventPreview(event, { ephemeral: true });
 			await this.#reply(interaction, preview);
+			await this.refreshEventMessages(event.id).catch(() => {});
 		} catch (err) {
 			this.logger?.warn({ err }, 'Failed to handle event modal');
 			await this.#reply(interaction, {
@@ -872,7 +964,7 @@ class StaffPanelService {
 		return preview;
 	}
 
-	#buildEventPayload(event, eventId) {
+	#buildEventPayload(event, eventId, { disableJoin = false } = {}) {
 		const embeds = [];
 		const embed = new EmbedBuilder()
 			.setTitle(event.name?.slice(0, 256) || 'Événement')
@@ -916,7 +1008,8 @@ class StaffPanelService {
 				new ButtonBuilder()
 					.setCustomId(`event:join:${eventId}`)
 					.setLabel('Rejoindre l\'evenement')
-					.setStyle(ButtonStyle.Primary),
+					.setStyle(ButtonStyle.Primary)
+					.setDisabled(disableJoin),
 				new ButtonBuilder()
 					.setCustomId(`event:spectate:${eventId}`)
 					.setLabel('Spectateur')
@@ -971,6 +1064,7 @@ class StaffPanelService {
 	}
 
 	async #activateEvent(event, actorId) {
+		await this.#ensureSchema();
 		if (!event) return;
 		const guildId = event.guild_id;
 		const guild = await this.client.guilds.fetch(guildId).catch(() => null);
@@ -1019,9 +1113,12 @@ class StaffPanelService {
 		);
 
 		const participantCount = await this.#countEventParticipants(event.id);
+		const maxParticipants = Number(event.max_participants || 0);
+		const disableJoin = Number.isFinite(maxParticipants) && maxParticipants > 0 && participantCount >= maxParticipants;
 		const payload = this.#buildEventPayload(
 			{ ...event, starts_at: start, ends_at: end, participant_count: participantCount },
-			event.id
+			event.id,
+			{ disableJoin }
 		);
 
 		let sentCount = 0;
@@ -1031,7 +1128,10 @@ class StaffPanelService {
 			const channel = await this.client.channels.fetch(channelId).catch(() => null);
 			if (!channel?.isTextBased?.()) continue;
 			try {
-				await channel.send(payload);
+				const message = await channel.send(payload);
+				if (message?.id) {
+					await this.#recordEventMessage(event.id, channelId, message.id);
+				}
 				sentCount += 1;
 			} catch (err) {
 				this.logger?.warn({ err, channelId }, 'Failed to send event to zone reception');
@@ -1039,6 +1139,70 @@ class StaffPanelService {
 		}
 
 		this.logger?.info({ eventId: event.id, actorId, sentCount }, 'Event activated');
+	}
+
+	async #recordEventMessage(eventId, channelId, messageId) {
+		if (!eventId || !channelId || !messageId) return;
+		await this.db.query(
+			`INSERT INTO event_messages (event_id, channel_id, message_id)
+                         VALUES (?, ?, ?)
+                         ON DUPLICATE KEY UPDATE message_id = VALUES(message_id)`,
+			[eventId, channelId, messageId]
+		).catch(() => {});
+	}
+
+	async refreshEventMessages(eventId) {
+		if (!eventId) return { ok: false, message: 'Evenement introuvable.' };
+		await this.#ensureSchema();
+
+		const event = await this.#getEventDraft(eventId);
+		if (!event) return { ok: false, message: 'Evenement introuvable.' };
+
+		const participantCount = await this.#countEventParticipants(eventId);
+		const maxParticipants = Number(event.max_participants || 0);
+		const disableJoin = Number.isFinite(maxParticipants) && maxParticipants > 0 && participantCount >= maxParticipants;
+		const payload = this.#buildEventPayload(
+			{ ...event, participant_count: participantCount },
+			eventId,
+			{ disableJoin }
+		);
+
+		const [rows] = await this.db.query(
+			'SELECT channel_id, message_id FROM event_messages WHERE event_id = ?',
+			[eventId]
+		);
+
+		let updated = 0;
+		for (const row of rows || []) {
+			const channel = await this.client.channels.fetch(row.channel_id).catch(() => null);
+			if (!channel?.isTextBased?.()) {
+				await this.db.query('DELETE FROM event_messages WHERE event_id = ? AND channel_id = ?', [
+					eventId,
+					row.channel_id
+				]).catch(() => {});
+				continue;
+			}
+			const message = await channel.messages.fetch(row.message_id).catch(() => null);
+			if (!message) {
+				await this.db.query('DELETE FROM event_messages WHERE event_id = ? AND channel_id = ?', [
+					eventId,
+					row.channel_id
+				]).catch(() => {});
+				continue;
+			}
+			await message.edit(payload).catch(() => {});
+			updated += 1;
+		}
+
+		const tempGroupService = this.services?.tempGroup || this.client?.context?.services?.tempGroup;
+		if (tempGroupService?.getGroup && tempGroupService?.ensurePanel && event.temp_group_id) {
+			const group = await tempGroupService.getGroup(event.temp_group_id).catch(() => null);
+			if (group) {
+				await tempGroupService.ensurePanel(group).catch(() => {});
+			}
+		}
+
+		return { ok: true, updated };
 	}
 
 	// ==== Scheduled processors
@@ -1432,6 +1596,7 @@ class StaffPanelService {
                         INDEX ix_status (status)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
 
+
 		if (!(await this.#columnExists('settings', 'events_admin_message_id'))) {
 			await this.db
 				.query('ALTER TABLE settings ADD COLUMN events_admin_message_id VARCHAR(32) NULL')
@@ -1503,6 +1668,17 @@ class StaffPanelService {
 
 		await this.services?.event?.ensureSchema?.().catch(() => {});
 		await this.services?.tempGroup?.ensureSchema?.().catch(() => {});
+
+		await this.db.query(`CREATE TABLE IF NOT EXISTS event_messages (
+                        event_id BIGINT UNSIGNED NOT NULL,
+                        channel_id VARCHAR(32) NOT NULL,
+                        message_id VARCHAR(32) NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY(event_id, channel_id),
+                        UNIQUE KEY uniq_message (message_id),
+                        INDEX ix_event (event_id),
+                        FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`).catch(() => {});
 
 		this.#schemaReady = true;
 	}

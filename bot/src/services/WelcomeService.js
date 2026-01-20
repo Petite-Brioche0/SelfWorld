@@ -18,6 +18,10 @@ class WelcomeService {
                 this.pageSize = 3;
         }
 
+        buildWizardPayload(guildId = null) {
+                return this.#buildWizardPayload(guildId);
+        }
+
         async sendWizardToUser(target, options = {}) {
                 const guildId = options.guildId || target?.guild?.id || target?.guildId || null;
                 const payload = this.#buildWizardPayload(guildId);
@@ -480,20 +484,7 @@ class WelcomeService {
         }
 
         async closeOnboardingChannelForUser(guildId, userId) {
-                try {
-                        const guild = await this.client.guilds.fetch(guildId);
-                        const chans = await guild.channels.fetch();
-                        for (const ch of chans.values()) {
-                                if (ch?.type === 0 && ch?.parent?.name?.toLowerCase() === 'onboarding') {
-                                        const topic = (ch.topic || '').toLowerCase();
-                                        if (topic.includes(`onboarding:user:${userId}`)) {
-                                                await ch.delete('User joined a zone — onboarding done').catch(() => {});
-                                        }
-                                }
-                        }
-                } catch (err) {
-                        this.logger?.warn({ err, guildId, userId }, 'Failed to cleanup onboarding channel');
-                }
+                return;
         }
 
         #parseColor(color) {

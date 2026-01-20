@@ -36,7 +36,7 @@ async function createFallbackChannel(member, logger = null) {
                         parent: category.id,
                         reason: 'Fallback onboarding channel',
                         permissionOverwrites: overwrites,
-                        topic: `onboarding:user:${member.id}`
+                        topic: 'Onboarding'
                 });
                 return channel;
         } catch (err) {
@@ -52,9 +52,20 @@ module.exports = {
                 const logger = client?.context?.logger || null;
                 const services = client?.context?.services;
                 const welcomeService = services?.welcome;
-                if (!welcomeService) return;
+                const hubService = services?.hub;
+                if (!welcomeService && !hubService) return;
 
                 try {
+                        if (hubService?.ensureHubChannelForMember) {
+                                const channel = await hubService.ensureHubChannelForMember(member);
+                                if (channel) return;
+                        }
+                } catch (err) {
+                        logger?.warn({ err, guildId: member.guild.id, userId: member.id }, 'Failed to create hub channel');
+                }
+
+                try {
+                        if (!welcomeService) return;
                         await welcomeService.sendWizardToUser(member, { guildId: member.guild.id });
                         return;
                 } catch (err) {

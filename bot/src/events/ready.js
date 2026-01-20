@@ -9,6 +9,7 @@ module.exports = {
 		await services.zone.cleanupOrphans().catch(err => logger.error({ err }, 'cleanupOrphans failed'));
 		await services.staffPanel?.ensureStaffPanels?.().catch(err => logger.error({ err }, 'staff panel setup failed'));
 		await services.staffPanel?.processScheduled?.().catch(err => logger.error({ err }, 'scheduled tasks failed'));
+		await services.hub?.ensureAllHubChannels?.().catch(err => logger.error({ err }, 'hub setup failed'));
 
 		// Schedule periodic tasks
 		// Sweep expired temp groups hourly

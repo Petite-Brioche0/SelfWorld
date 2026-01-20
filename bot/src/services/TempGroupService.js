@@ -7,6 +7,7 @@ const {
 	MessageFlags,
 	ModalBuilder,
 	PermissionFlagsBits,
+	StringSelectMenuBuilder,
 	TextInputBuilder,
 	TextInputStyle
 } = require('discord.js');
@@ -46,6 +47,17 @@ class TempGroupService {
                         user_id VARCHAR(32) NOT NULL,
                         role ENUM('participant','spectator') NOT NULL DEFAULT 'participant',
                         PRIMARY KEY(temp_group_id, user_id),
+                        FOREIGN KEY(temp_group_id) REFERENCES temp_groups(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`).catch(() => {});
+
+		await this.db.query(`CREATE TABLE IF NOT EXISTS temp_group_channels (
+                        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                        temp_group_id BIGINT UNSIGNED NOT NULL,
+                        channel_id VARCHAR(32) NOT NULL,
+                        kind ENUM('text','voice') NOT NULL DEFAULT 'text',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE KEY uniq_channel (channel_id),
+                        INDEX ix_group (temp_group_id),
                         FOREIGN KEY(temp_group_id) REFERENCES temp_groups(id) ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`).catch(() => {});
 
@@ -181,7 +193,7 @@ class TempGroupService {
 		return this.setMemberRole(groupId, userId, role, { guildId });
 	}
 
-	async setMemberRole(groupId, userId, role, { guildId = null } = {}) {
+	async setMemberRole(groupId, userId, role, { guildId = null, allowPanel = false } = {}) {
 		await this.ensureSchema();
 		const group = await this.#getGroup(groupId);
 		if (!group) throw new Error('Groupe temporaire introuvable');
@@ -196,7 +208,7 @@ class TempGroupService {
 		const member = await guild.members.fetch(userId).catch(() => null);
 		if (!member) throw new Error('Membre introuvable');
 
-		await this.#applyMemberPermissions(group, member, normalizedRole);
+		await this.#applyMemberPermissions(group, member, normalizedRole, { allowPanel });
 
 		await this.#safeQuery(
 			`INSERT INTO temp_group_members (temp_group_id, user_id, role)
@@ -207,6 +219,32 @@ class TempGroupService {
 
 		await this.ensurePanel(group).catch(() => {});
 		return { group, role: normalizedRole };
+	}
+
+	async setGroupOwner(groupId, userId) {
+		if (!groupId || !userId) return;
+		await this.ensureSchema();
+		await this.#safeQuery('UPDATE temp_groups SET created_by = ? WHERE id = ?', [userId, groupId]);
+	}
+
+	async grantPanelAccess(groupId, userId, { guildId = null } = {}) {
+		await this.ensureSchema();
+		const group = await this.#getGroup(groupId);
+		if (!group) throw new Error('Groupe temporaire introuvable');
+
+		const resolvedGuildId = group.guild_id || guildId;
+		const guild = resolvedGuildId ? await this.client.guilds.fetch(resolvedGuildId).catch(() => null) : null;
+		if (!guild) throw new Error('Guilde introuvable');
+
+		const member = await guild.members.fetch(userId).catch(() => null);
+		if (!member) throw new Error('Membre introuvable');
+
+		const panelChannel = await this.#fetchChannel(group.panel_channel_id);
+		if (panelChannel) {
+			await panelChannel.permissionOverwrites
+				.edit(member.id, { ViewChannel: true, ReadMessageHistory: true })
+				.catch(() => {});
+		}
 	}
 
 	async removeMember(groupId, userId, { guildId = null } = {}) {
@@ -232,7 +270,195 @@ class TempGroupService {
 
 	async handleButton(interaction) {
 		await this.ensureSchema();
-		const parsed = this.#parseButton(interaction?.customId);
+		const customId = interaction?.customId || '';
+		if (!customId.startsWith('temp:')) {
+			await this.#reply(interaction, 'Action inconnue.');
+			return;
+		}
+
+		let match = customId.match(/^temp:member:remove:(\d+):(\d+)/);
+		if (match) {
+			const groupId = Number(match[1]);
+			const userId = match[2];
+			const group = await this.#getGroup(groupId);
+			if (!group) {
+				await this.#reply(interaction, 'Groupe temporaire introuvable.');
+				return;
+			}
+			if (!this.#canManageGroup(interaction, group)) {
+				await this.#reply(interaction, 'Action réservée au staff.');
+				return;
+			}
+			if (group.event_id) {
+				await this.client?.context?.services?.event?.ensureSchema?.().catch(() => {});
+				await this.#removeEventParticipant(group.event_id, userId);
+			}
+			await this.removeMember(group.id, userId, { guildId: group.guild_id });
+			await this.ensurePanel(group).catch(() => {});
+			await this.#reply(interaction, 'Membre retire.');
+			return;
+		}
+
+		match = customId.match(/^temp:member:switch:(\d+):(\d+):(participant|spectator)$/);
+		if (match) {
+			const groupId = Number(match[1]);
+			const userId = match[2];
+			const targetRole = match[3];
+			const group = await this.#getGroup(groupId);
+			if (!group) {
+				await this.#reply(interaction, 'Groupe temporaire introuvable.');
+				return;
+			}
+			if (!this.#canManageGroup(interaction, group)) {
+				await this.#reply(interaction, 'Action réservée au staff.');
+				return;
+			}
+
+			const currentRole = await this.#getMemberRole(group.id, userId);
+			if (currentRole === targetRole) {
+				await this.#reply(interaction, 'Membre deja dans ce role.');
+				return;
+			}
+
+			if (group.event_id) {
+				await this.client?.context?.services?.event?.ensureSchema?.().catch(() => {});
+				const eventMeta = await this.#getEventMeta(group.event_id);
+				const maxParticipants = Number(eventMeta?.max_participants || 0);
+				const hasMax = Number.isFinite(maxParticipants) && maxParticipants > 0;
+				const existingRole = await this.#getEventParticipantRole(group.event_id, userId);
+
+				if (targetRole === 'participant' && hasMax && existingRole !== 'participant') {
+					const count = await this.#countEventParticipants(group.event_id);
+					if (count >= maxParticipants) {
+						await this.#reply(interaction, 'Nombre maximal de participants atteint.');
+						return;
+					}
+				}
+
+				const eventUpdate = await this.#setEventParticipantRole(group.event_id, userId, targetRole);
+				if (!eventUpdate.ok) {
+					await this.#reply(interaction, eventUpdate.message || 'Impossible de mettre a jour l\'evenement.');
+					return;
+				}
+			}
+
+			await this.setMemberRole(group.id, userId, targetRole, { guildId: group.guild_id });
+			await this.ensurePanel(group).catch(() => {});
+			await this.#reply(interaction, 'Membre mis a jour.');
+			return;
+		}
+
+		match = customId.match(/^temp:channel:create:(\d+)/);
+		if (match) {
+			const groupId = Number(match[1]);
+			const group = await this.#getGroup(groupId);
+			if (!group) {
+				await this.#reply(interaction, 'Groupe temporaire introuvable.');
+				return;
+			}
+			if (!this.#canManageGroup(interaction, group)) {
+				await this.#reply(interaction, 'Action réservée au staff.');
+				return;
+			}
+			const modal = this.#buildChannelCreateModal(group);
+			await interaction.showModal(modal);
+			return;
+		}
+
+		match = customId.match(/^temp:channel:rename:(\d+):(\d+)/);
+		if (match) {
+			const groupId = Number(match[1]);
+			const channelId = match[2];
+			const group = await this.#getGroup(groupId);
+			if (!group) {
+				await this.#reply(interaction, 'Groupe temporaire introuvable.');
+				return;
+			}
+			if (!this.#canManageGroup(interaction, group)) {
+				await this.#reply(interaction, 'Action réservée au staff.');
+				return;
+			}
+			const allowed = await this.#isExtraChannel(group.id, channelId);
+			if (!allowed) {
+				await this.#reply(interaction, 'Salon non modifiable.');
+				return;
+			}
+			const modal = await this.#buildChannelRenameModal(group, channelId);
+			await interaction.showModal(modal);
+			return;
+		}
+
+		match = customId.match(/^temp:channel:delete:(\d+):(\d+)/);
+		if (match) {
+			const groupId = Number(match[1]);
+			const channelId = match[2];
+			const group = await this.#getGroup(groupId);
+			if (!group) {
+				await this.#reply(interaction, 'Groupe temporaire introuvable.');
+				return;
+			}
+			if (!this.#canManageGroup(interaction, group)) {
+				await this.#reply(interaction, 'Action réservée au staff.');
+				return;
+			}
+			const allowed = await this.#isExtraChannel(group.id, channelId);
+			if (!allowed) {
+				await this.#reply(interaction, 'Salon non modifiable.');
+				return;
+			}
+			await this.#deleteExtraChannel(group, channelId);
+			await this.ensurePanel(group).catch(() => {});
+			await this.#reply(interaction, 'Salon supprime.');
+			return;
+		}
+
+		match = customId.match(/^temp:event:edit:(\d+)/);
+		if (match) {
+			const groupId = Number(match[1]);
+			const group = await this.#getGroup(groupId);
+			if (!group) {
+				await this.#reply(interaction, 'Groupe temporaire introuvable.');
+				return;
+			}
+			if (!this.#canManageGroup(interaction, group)) {
+				await this.#reply(interaction, 'Action réservée au staff.');
+				return;
+			}
+			if (!group.event_id) {
+				await this.#reply(interaction, 'Evenement introuvable.');
+				return;
+			}
+			const event = await this.#getEventDetails(group.event_id);
+			if (!event) {
+				await this.#reply(interaction, 'Evenement introuvable.');
+				return;
+			}
+			const modal = this.#buildEventEditModal(group, event);
+			await interaction.showModal(modal);
+			return;
+		}
+
+		match = customId.match(/^temp:event:refresh:(\d+)/);
+		if (match) {
+			const groupId = Number(match[1]);
+			const group = await this.#getGroup(groupId);
+			if (!group) {
+				await this.#reply(interaction, 'Groupe temporaire introuvable.');
+				return;
+			}
+			if (!this.#canManageGroup(interaction, group)) {
+				await this.#reply(interaction, 'Action réservée au staff.');
+				return;
+			}
+			if (group.event_id) {
+				await this.client?.context?.services?.staffPanel?.refreshEventMessages?.(group.event_id).catch(() => {});
+			}
+			await this.ensurePanel(group).catch(() => {});
+			await this.#reply(interaction, 'Panneau actualise.');
+			return;
+		}
+
+		const parsed = this.#parseButton(customId);
 		if (!parsed) {
 			await this.#reply(interaction, 'Action inconnue.');
 			return;
@@ -245,18 +471,6 @@ class TempGroupService {
 		}
 		if (!this.#canManageGroup(interaction, group)) {
 			await this.#reply(interaction, 'Action réservée au staff.');
-			return;
-		}
-
-		if (parsed.action === 'members') {
-			const modal = this.#buildMembersModal(group);
-			await interaction.showModal(modal);
-			return;
-		}
-
-		if (parsed.action === 'channels') {
-			const modal = await this.#buildChannelsModal(group);
-			await interaction.showModal(modal);
 			return;
 		}
 
@@ -277,10 +491,116 @@ class TempGroupService {
 		}
 	}
 
+	async handleSelectMenu(interaction) {
+		await this.ensureSchema();
+		const customId = interaction?.customId || '';
+		if (!customId.startsWith('temp:')) return;
+
+		let match = customId.match(/^temp:member:select:(\d+):(participant|spectator)$/);
+		if (match) {
+			const groupId = Number(match[1]);
+			const role = match[2];
+			const userId = interaction.values?.[0];
+			const group = await this.#getGroup(groupId);
+			if (!group) {
+				await this.#reply(interaction, 'Groupe temporaire introuvable.');
+				return;
+			}
+			if (!this.#canManageGroup(interaction, group)) {
+				await this.#reply(interaction, 'Action réservée au staff.');
+				return;
+			}
+			if (!userId || userId === 'noop') {
+				await interaction.deferUpdate().catch(() => {});
+				return;
+			}
+			const counts = await this.#getMemberCounts(group.id);
+			const panel = await this.#renderMembersPanel(group, counts, { role, userId });
+			await interaction.update({ embeds: [panel.embed], components: panel.components }).catch(() => {});
+			return;
+		}
+
+		match = customId.match(/^temp:channel:select:(\d+)/);
+		if (match) {
+			const groupId = Number(match[1]);
+			const channelId = interaction.values?.[0];
+			const group = await this.#getGroup(groupId);
+			if (!group) {
+				await this.#reply(interaction, 'Groupe temporaire introuvable.');
+				return;
+			}
+			if (!this.#canManageGroup(interaction, group)) {
+				await this.#reply(interaction, 'Action réservée au staff.');
+				return;
+			}
+			if (!channelId || channelId === 'noop') {
+				await interaction.deferUpdate().catch(() => {});
+				return;
+			}
+			const allowed = await this.#isExtraChannel(group.id, channelId);
+			const panel = await this.#renderChannelsPanel(group, allowed ? channelId : null);
+			await interaction.update({ embeds: [panel.embed], components: panel.components }).catch(() => {});
+		}
+	}
+
 	async handleModal(interaction) {
 		await this.ensureSchema();
 		const customId = interaction?.customId || '';
 		if (!customId.startsWith('temp:')) return;
+
+		let match = customId.match(/^temp:event:edit:modal:(\d+)/);
+		if (match) {
+			const groupId = Number(match[1]);
+			const group = await this.#getGroup(groupId);
+			if (!group) {
+				await this.#reply(interaction, 'Groupe temporaire introuvable.');
+				return;
+			}
+			if (!this.#canManageGroup(interaction, group)) {
+				await this.#reply(interaction, 'Action réservée au staff.');
+				return;
+			}
+			await this.#handleEventEditModal(interaction, group);
+			return;
+		}
+
+		match = customId.match(/^temp:channel:create:modal:(\d+)/);
+		if (match) {
+			const groupId = Number(match[1]);
+			const group = await this.#getGroup(groupId);
+			if (!group) {
+				await this.#reply(interaction, 'Groupe temporaire introuvable.');
+				return;
+			}
+			if (!this.#canManageGroup(interaction, group)) {
+				await this.#reply(interaction, 'Action réservée au staff.');
+				return;
+			}
+			await this.#handleChannelCreateModal(interaction, group);
+			return;
+		}
+
+		match = customId.match(/^temp:channel:rename:modal:(\d+):(\d+)/);
+		if (match) {
+			const groupId = Number(match[1]);
+			const channelId = match[2];
+			const group = await this.#getGroup(groupId);
+			if (!group) {
+				await this.#reply(interaction, 'Groupe temporaire introuvable.');
+				return;
+			}
+			if (!this.#canManageGroup(interaction, group)) {
+				await this.#reply(interaction, 'Action réservée au staff.');
+				return;
+			}
+			const allowed = await this.#isExtraChannel(group.id, channelId);
+			if (!allowed) {
+				await this.#reply(interaction, 'Salon non modifiable.');
+				return;
+			}
+			await this.#handleChannelRenameModal(interaction, group, channelId);
+			return;
+		}
 
 		const memberMatch = customId.match(/^temp:members:modal:(\d+)/);
 		if (memberMatch) {
@@ -332,6 +652,22 @@ class TempGroupService {
 		if (!group?.id) return;
 		await this.#safeQuery('UPDATE temp_groups SET archived = 1 WHERE id = ?', [group.id]);
 
+		const baseIds = new Set(
+			[
+				group.text_channel_id,
+				group.voice_channel_id,
+				group.panel_channel_id,
+				group.category_id
+			].filter(Boolean)
+		);
+
+		const extras = await this.#getExtraChannels(group.id).catch(() => []);
+		for (const extra of extras || []) {
+			if (baseIds.has(extra.channel_id)) continue;
+			await this.#deleteExtraChannel(group, extra.channel_id).catch(() => {});
+		}
+		await this.#safeQuery('DELETE FROM temp_group_channels WHERE temp_group_id = ?', [group.id]);
+
 		const channelIds = [
 			group.text_channel_id,
 			group.voice_channel_id,
@@ -347,7 +683,7 @@ class TempGroupService {
 	}
 
 	#parseButton(customId) {
-		const match = String(customId || '').match(/^temp:(extend|delete|members|channels):(\d+)/);
+		const match = String(customId || '').match(/^temp:(extend|delete):(\d+)/);
 		if (!match) return null;
 		return { action: match[1], groupId: match[2] };
 	}
@@ -411,7 +747,7 @@ class TempGroupService {
 		);
 	}
 
-	async #renderMembersPanel(group, counts) {
+	async #renderMembersPanel(group, counts, selection = null) {
 		const participantPreview = await this.#getMemberPreview(group.id, 'participant', 20);
 		const spectatorPreview = await this.#getMemberPreview(group.id, 'spectator', 20);
 
@@ -432,38 +768,88 @@ class TempGroupService {
 			)
 			.setColor(0x5865f2);
 
-		const row = new ActionRowBuilder().addComponents(
-			new ButtonBuilder()
-				.setCustomId(`temp:members:${group.id}`)
-				.setLabel('Gerer les membres')
-				.setStyle(ButtonStyle.Primary)
-		);
+		if (selection?.userId) {
+			const roleLabel = selection.role === 'spectator' ? 'spectateur' : 'participant';
+			embed.addFields({
+				name: 'Selection',
+				value: `<@${selection.userId}> (${roleLabel})`,
+				inline: false
+			});
+		}
 
-		return { embed, components: [row] };
+		const participantRow = await this.#buildMemberSelectRow(group, 'participant', selection?.role === 'participant' ? selection?.userId : null);
+		const spectatorRow = await this.#buildMemberSelectRow(group, 'spectator', selection?.role === 'spectator' ? selection?.userId : null);
+
+		const rows = [participantRow, spectatorRow];
+
+		if (selection?.userId) {
+			const targetRole = selection.role === 'spectator' ? 'participant' : 'spectator';
+			const switchLabel = selection.role === 'spectator' ? 'Basculer en participant' : 'Basculer en spectateur';
+			const actionRow = new ActionRowBuilder().addComponents(
+				new ButtonBuilder()
+					.setCustomId(`temp:member:remove:${group.id}:${selection.userId}`)
+					.setLabel('Retirer')
+					.setStyle(ButtonStyle.Danger),
+				new ButtonBuilder()
+					.setCustomId(`temp:member:switch:${group.id}:${selection.userId}:${targetRole}`)
+					.setLabel(switchLabel)
+					.setStyle(ButtonStyle.Secondary)
+			);
+			rows.push(actionRow);
+		}
+
+		return { embed, components: rows };
 	}
 
-	async #renderChannelsPanel(group) {
-		const channelsValue = [
+	async #renderChannelsPanel(group, selectedChannelId = null) {
+		const baseChannels = [
 			group.panel_channel_id ? `Panel: <#${group.panel_channel_id}>` : null,
 			group.text_channel_id ? `Texte: <#${group.text_channel_id}>` : null,
 			group.voice_channel_id ? `Vocal: <#${group.voice_channel_id}>` : null,
 			group.category_id ? `Categorie: <#${group.category_id}>` : null
 		].filter(Boolean).join('\n') || 'n/a';
 
+		const extras = await this.#getExtraChannels(group.id);
+		const extrasValue = extras.length ? extras.map((row) => `<#${row.channel_id}>`).join('\n') : 'Aucun';
+
 		const embed = new EmbedBuilder()
 			.setTitle('Salons du groupe')
-			.setDescription('Renomme les salons si besoin.')
-			.addFields({ name: 'Salons', value: channelsValue, inline: false })
+			.setDescription('Gere les salons additionnels. Les salons de base ne sont pas modifiables.')
+			.addFields(
+				{ name: 'Salons principaux', value: baseChannels, inline: false },
+				{ name: 'Salons additionnels', value: extrasValue, inline: false }
+			)
 			.setColor(0x5865f2);
 
-		const row = new ActionRowBuilder().addComponents(
+		if (selectedChannelId) {
+			embed.addFields({ name: 'Selection', value: `<#${selectedChannelId}>`, inline: false });
+		}
+
+		const selectRow = await this.#buildChannelSelectRow(group, extras, selectedChannelId);
+		const createRow = new ActionRowBuilder().addComponents(
 			new ButtonBuilder()
-				.setCustomId(`temp:channels:${group.id}`)
-				.setLabel('Gerer les salons')
-				.setStyle(ButtonStyle.Secondary)
+				.setCustomId(`temp:channel:create:${group.id}`)
+				.setLabel('Creer un salon')
+				.setStyle(ButtonStyle.Primary)
 		);
 
-		return { embed, components: [row] };
+		const rows = [selectRow, createRow];
+
+		if (selectedChannelId) {
+			const actionRow = new ActionRowBuilder().addComponents(
+				new ButtonBuilder()
+					.setCustomId(`temp:channel:rename:${group.id}:${selectedChannelId}`)
+					.setLabel('Renommer')
+					.setStyle(ButtonStyle.Secondary),
+				new ButtonBuilder()
+					.setCustomId(`temp:channel:delete:${group.id}:${selectedChannelId}`)
+					.setLabel('Supprimer')
+					.setStyle(ButtonStyle.Danger)
+			);
+			rows.push(actionRow);
+		}
+
+		return { embed, components: rows };
 	}
 
 	async #renderEventPanel(group) {
@@ -510,12 +896,28 @@ class TempGroupService {
 			}
 		}
 
-		const row = new ActionRowBuilder().addComponents(
+		const rows = [];
+		if (group.event_id) {
+			const editRow = new ActionRowBuilder().addComponents(
+				new ButtonBuilder()
+					.setCustomId(`temp:event:edit:${group.id}`)
+					.setLabel('Modifier l\'evenement')
+					.setStyle(ButtonStyle.Primary),
+				new ButtonBuilder()
+					.setCustomId(`temp:event:refresh:${group.id}`)
+					.setLabel('Rafraichir')
+					.setStyle(ButtonStyle.Secondary)
+			);
+			rows.push(editRow);
+		}
+
+		const actionRow = new ActionRowBuilder().addComponents(
 			new ButtonBuilder().setCustomId(`temp:extend:${group.id}`).setLabel('Prolonger').setStyle(ButtonStyle.Secondary),
 			new ButtonBuilder().setCustomId(`temp:delete:${group.id}`).setLabel('Archiver').setStyle(ButtonStyle.Danger)
 		);
+		rows.push(actionRow);
 
-		return { embed, components: [row] };
+		return { embed, components: rows };
 	}
 
 	async #upsertPanelMessage(channel, messageId, payload) {
@@ -570,9 +972,174 @@ class TempGroupService {
 		return lines.join('\n');
 	}
 
+	async #buildMemberSelectRow(group, role, selectedUserId) {
+		const options = await this.#getMemberSelectOptions(group, role, selectedUserId);
+		const isParticipant = role === 'participant';
+		const placeholder = isParticipant ? 'Choisir un participant' : 'Choisir un spectateur';
+
+		const select = new StringSelectMenuBuilder()
+			.setCustomId(`temp:member:select:${group.id}:${role}`)
+			.setPlaceholder(placeholder)
+			.setMinValues(1)
+			.setMaxValues(1);
+
+		if (options.length) {
+			select.addOptions(options);
+		} else {
+			select
+				.setDisabled(true)
+				.addOptions({ label: isParticipant ? 'Aucun participant' : 'Aucun spectateur', value: 'noop' });
+		}
+
+		return new ActionRowBuilder().addComponents(select);
+	}
+
+	async #getMemberSelectOptions(group, role, selectedUserId) {
+		const [rows] = await this.#safeQuery(
+			`SELECT user_id FROM temp_group_members
+                         WHERE temp_group_id = ? AND role = ?
+                         ORDER BY user_id LIMIT 25`,
+			[group.id, role]
+		);
+
+		const guild = group.guild_id ? this.client.guilds.cache.get(group.guild_id) : null;
+
+		return (rows || []).map((row) => {
+			const userId = row.user_id;
+			const member = guild?.members?.cache?.get?.(userId) || null;
+			const label = member?.displayName || member?.user?.username || userId;
+			const description = member?.user?.tag ? member.user.tag.slice(0, 100) : undefined;
+			return {
+				label: String(label).slice(0, 100),
+				value: userId,
+				description,
+				default: selectedUserId ? userId === selectedUserId : false
+			};
+		});
+	}
+
+	async #getExtraChannels(groupId) {
+		const [rows] = await this.#safeQuery(
+			'SELECT channel_id, kind FROM temp_group_channels WHERE temp_group_id = ? ORDER BY id',
+			[groupId]
+		);
+		const result = [];
+		for (const row of rows || []) {
+			const channel = await this.#fetchChannel(row.channel_id);
+			if (!channel) {
+				await this.#safeQuery('DELETE FROM temp_group_channels WHERE channel_id = ?', [row.channel_id]);
+				continue;
+			}
+			result.push({ channel_id: row.channel_id, kind: row.kind || 'text', channel });
+		}
+		return result;
+	}
+
+	async #buildChannelSelectRow(group, extras, selectedChannelId) {
+		const select = new StringSelectMenuBuilder()
+			.setCustomId(`temp:channel:select:${group.id}`)
+			.setPlaceholder('Choisir un salon additionnel')
+			.setMinValues(1)
+			.setMaxValues(1);
+
+		const options = (extras || []).slice(0, 25).map((row) => ({
+			label: String(row.channel?.name || row.channel_id).slice(0, 100),
+			value: row.channel_id,
+			description: row.kind === 'voice' ? 'Vocal' : 'Texte',
+			default: selectedChannelId ? row.channel_id === selectedChannelId : false
+		}));
+
+		if (options.length) {
+			select.addOptions(options);
+		} else {
+			select
+				.setDisabled(true)
+				.addOptions({ label: 'Aucun salon additionnel', value: 'noop' });
+		}
+
+		return new ActionRowBuilder().addComponents(select);
+	}
+
+	#normalizeChannelKind(value) {
+		const trimmed = String(value || '').trim().toLowerCase();
+		if (!trimmed) return null;
+		if (['text', 'texte', 'txt', 't', 'ecrit', 'message'].includes(trimmed)) return 'text';
+		if (['voice', 'vocal', 'voc', 'audio', 'v'].includes(trimmed)) return 'voice';
+		return null;
+	}
+
+	#normalizeChannelName(value, kind) {
+		const trimmed = String(value || '').trim();
+		if (!trimmed) return null;
+		if (kind === 'text') {
+			const slug = this.#slugify(trimmed, 100);
+			return slug || null;
+		}
+		const cleaned = trimmed.replace(/\s+/g, ' ').slice(0, 100);
+		return cleaned || null;
+	}
+
+	async #createExtraChannel(group, name, kind) {
+		const category = group.category_id ? await this.#fetchChannel(group.category_id) : null;
+		let guild = null;
+		if (group.guild_id) {
+			guild = await this.client.guilds.fetch(group.guild_id).catch(() => null);
+		}
+		if (!guild && category?.guild) {
+			guild = category.guild;
+		}
+		if (!guild) return null;
+
+		const type = kind === 'voice' ? ChannelType.GuildVoice : ChannelType.GuildText;
+		const payload = {
+			name,
+			type,
+			parent: category?.id,
+			reason: 'Temp group extra channel'
+		};
+
+		if (!payload.parent) {
+			payload.permissionOverwrites = await this.#buildBaseOverwrites(guild, group.created_by);
+		}
+
+		const channel = await guild.channels.create(payload).catch(() => null);
+		if (!channel) return null;
+
+		await this.#safeQuery(
+			`INSERT INTO temp_group_channels (temp_group_id, channel_id, kind)
+                         VALUES (?, ?, ?)
+                         ON DUPLICATE KEY UPDATE kind = VALUES(kind)`,
+			[group.id, channel.id, kind]
+		);
+
+		return channel;
+	}
+
+	async #deleteExtraChannel(group, channelId) {
+		await this.#safeQuery('DELETE FROM temp_group_channels WHERE temp_group_id = ? AND channel_id = ?', [
+			group.id,
+			channelId
+		]);
+
+		const channel = await this.#fetchChannel(channelId);
+		if (channel) {
+			await channel.delete('Temp group extra channel removed').catch(() => {});
+		}
+	}
+
+	async #isExtraChannel(groupId, channelId) {
+		const [rows] = await this.#safeQuery(
+			'SELECT channel_id FROM temp_group_channels WHERE temp_group_id = ? AND channel_id = ? LIMIT 1',
+			[groupId, channelId]
+		);
+		return Boolean(rows?.length);
+	}
+
 	async #getEventDetails(eventId) {
 		const [rows] = await this.#safeQuery(
-			'SELECT id, name, status, scheduled_at, starts_at, ends_at, min_participants, max_participants FROM events WHERE id = ?',
+			`SELECT id, name, description, status, scheduled_at, starts_at, ends_at, min_participants, max_participants,
+                        message_content, embed_color, game
+                         FROM events WHERE id = ?`,
 			[eventId]
 		);
 		return rows?.[0] || null;
@@ -584,6 +1151,81 @@ class TempGroupService {
 			[eventId]
 		);
 		return Number(rows?.[0]?.n || 0);
+	}
+
+	#parseParticipants(raw) {
+		const value = String(raw || '').trim();
+		if (!value) return { min: null, max: null };
+
+		let min = null;
+		let max = null;
+
+		const minMatch = value.match(/min\s*=\s*(\d+)/i);
+		const maxMatch = value.match(/max\s*=\s*(\d+)/i);
+		if (minMatch) min = Number(minMatch[1]);
+		if (maxMatch) max = Number(maxMatch[1]);
+
+		if (!minMatch && !maxMatch) {
+			const pairMatch = value.match(/(\d+)\s*\/\s*(\d+)/);
+			if (pairMatch) {
+				min = Number(pairMatch[1]);
+				max = Number(pairMatch[2]);
+			} else if (/^\d+$/.test(value)) {
+				max = Number(value);
+			}
+		}
+
+		if (min && max && min > max) {
+			[min, max] = [max, min];
+		}
+
+		return {
+			min: Number.isFinite(min) && min > 0 ? min : null,
+			max: Number.isFinite(max) && max > 0 ? max : null
+		};
+	}
+
+	#formatParticipants(existing) {
+		if (!existing) return '';
+		const min = existing.min_participants ? Number(existing.min_participants) : null;
+		const max = existing.max_participants ? Number(existing.max_participants) : null;
+		if (!min && !max) return '';
+		if (min && max) return `min=${min} max=${max}`;
+		if (min) return `min=${min}`;
+		return `max=${max}`;
+	}
+
+	#normalizeColor(value) {
+		if (!value) return null;
+		const trimmed = String(value).trim().replace(/^#/, '');
+		if (!/^[0-9a-fA-F]{6}$/.test(trimmed)) return null;
+		return `#${trimmed.toUpperCase()}`;
+	}
+
+	#parseOptions(raw) {
+		const result = {};
+		if (!raw) return result;
+		for (const line of String(raw).split('\n')) {
+			const trimmed = line.trim();
+			if (!trimmed) continue;
+			const eq = trimmed.indexOf('=');
+			if (eq === -1) continue;
+			const key = trimmed.slice(0, eq).trim().toLowerCase();
+			const value = trimmed.slice(eq + 1).trim();
+			if (!key || !value) continue;
+			result[key] = value;
+		}
+		return result;
+	}
+
+	#formatEventOptions(existing) {
+		if (!existing) return '';
+		const lines = [];
+		if (existing.message_content) {
+			lines.push(`tag=${String(existing.message_content).replace(/\s+/g, ' ').slice(0, 128)}`);
+		}
+		if (existing.game) lines.push(`jeu=${String(existing.game).slice(0, 120)}`);
+		return lines.join('\n');
 	}
 
 	#formatTimestamp(value) {
@@ -672,6 +1314,219 @@ class TempGroupService {
 		);
 
 		return modal;
+	}
+
+	#buildChannelCreateModal(group) {
+		const modal = new ModalBuilder()
+			.setCustomId(`temp:channel:create:modal:${group.id}`)
+			.setTitle('Creer un salon');
+
+		const nameInput = new TextInputBuilder()
+			.setCustomId('tempChannelName')
+			.setLabel('Nom du salon')
+			.setStyle(TextInputStyle.Short)
+			.setRequired(true)
+			.setMaxLength(100);
+
+		const typeInput = new TextInputBuilder()
+			.setCustomId('tempChannelType')
+			.setLabel('Type (texte/vocal)')
+			.setStyle(TextInputStyle.Short)
+			.setRequired(true)
+			.setMaxLength(16)
+			.setPlaceholder('texte');
+
+		modal.addComponents(
+			new ActionRowBuilder().addComponents(nameInput),
+			new ActionRowBuilder().addComponents(typeInput)
+		);
+
+		return modal;
+	}
+
+	async #buildChannelRenameModal(group, channelId) {
+		const modal = new ModalBuilder()
+			.setCustomId(`temp:channel:rename:modal:${group.id}:${channelId}`)
+			.setTitle('Renommer un salon');
+
+		const nameInput = new TextInputBuilder()
+			.setCustomId('tempChannelRename')
+			.setLabel('Nouveau nom')
+			.setStyle(TextInputStyle.Short)
+			.setRequired(true)
+			.setMaxLength(100);
+
+		const channel = await this.#fetchChannel(channelId);
+		if (channel?.name) {
+			nameInput.setValue(String(channel.name).slice(0, 100));
+		}
+
+		modal.addComponents(new ActionRowBuilder().addComponents(nameInput));
+
+		return modal;
+	}
+
+	#buildEventEditModal(group, event) {
+		const modal = new ModalBuilder()
+			.setCustomId(`temp:event:edit:modal:${group.id}`)
+			.setTitle('Modifier l\'evenement');
+
+		const nameInput = new TextInputBuilder()
+			.setCustomId('tempEventName')
+			.setLabel('Titre')
+			.setStyle(TextInputStyle.Short)
+			.setRequired(true)
+			.setMaxLength(120)
+			.setValue(event?.name || '');
+
+		const descriptionInput = new TextInputBuilder()
+			.setCustomId('tempEventDescription')
+			.setLabel('Description')
+			.setStyle(TextInputStyle.Paragraph)
+			.setRequired(false)
+			.setMaxLength(4000)
+			.setValue(event?.description || '');
+
+		const colorInput = new TextInputBuilder()
+			.setCustomId('tempEventColor')
+			.setLabel('Couleur (#RRGGBB)')
+			.setStyle(TextInputStyle.Short)
+			.setRequired(false)
+			.setMaxLength(16)
+			.setPlaceholder('#5865F2')
+			.setValue(event?.embed_color || '');
+
+		const participantsInput = new TextInputBuilder()
+			.setCustomId('tempEventParticipants')
+			.setLabel('Participants (min=/max=)')
+			.setStyle(TextInputStyle.Short)
+			.setRequired(false)
+			.setMaxLength(64)
+			.setPlaceholder('min=5 max=20')
+			.setValue(this.#formatParticipants(event));
+
+		const optionsInput = new TextInputBuilder()
+			.setCustomId('tempEventOptions')
+			.setLabel('Tag / Jeu')
+			.setStyle(TextInputStyle.Paragraph)
+			.setRequired(false)
+			.setMaxLength(600)
+			.setPlaceholder('tag=Roleplay\njeu=Nom du jeu')
+			.setValue(this.#formatEventOptions(event));
+
+		modal.addComponents(
+			new ActionRowBuilder().addComponents(nameInput),
+			new ActionRowBuilder().addComponents(descriptionInput),
+			new ActionRowBuilder().addComponents(colorInput),
+			new ActionRowBuilder().addComponents(participantsInput),
+			new ActionRowBuilder().addComponents(optionsInput)
+		);
+
+		return modal;
+	}
+
+	async #handleEventEditModal(interaction, group) {
+		if (!group?.event_id) {
+			await this.#reply(interaction, 'Evenement introuvable.');
+			return;
+		}
+
+		const name = interaction.fields.getTextInputValue('tempEventName')?.trim() || '';
+		const description = interaction.fields.getTextInputValue('tempEventDescription')?.trim() || null;
+		const colorRaw = interaction.fields.getTextInputValue('tempEventColor')?.trim() || '';
+		const participantsRaw = interaction.fields.getTextInputValue('tempEventParticipants')?.trim() || '';
+		const optionsRaw = interaction.fields.getTextInputValue('tempEventOptions')?.trim() || '';
+
+		if (!name) {
+			await this.#reply(interaction, 'Le titre est obligatoire.');
+			return;
+		}
+
+		const embedColor = colorRaw ? this.#normalizeColor(colorRaw) : null;
+		if (colorRaw && !embedColor) {
+			await this.#reply(interaction, 'Couleur invalide. Utilise le format #RRGGBB.');
+			return;
+		}
+
+		const limits = this.#parseParticipants(participantsRaw);
+		const options = this.#parseOptions(optionsRaw);
+		const tagRaw = options.tag || options.type || '';
+		const tagValue = tagRaw ? String(tagRaw).trim().slice(0, 128) : null;
+		const gameRaw = options.jeu || options['jeu.x'] || options.game || options.jeux || '';
+		const game = gameRaw ? String(gameRaw).trim().slice(0, 120) : null;
+
+		await this.#safeQuery(
+			`UPDATE events
+                         SET name = ?, description = ?, embed_color = ?, min_participants = ?, max_participants = ?, message_content = ?, game = ?
+                         WHERE id = ?`,
+			[
+				name,
+				description,
+				embedColor,
+				limits.min,
+				limits.max,
+				tagValue,
+				game,
+				group.event_id
+			]
+		);
+
+		await this.ensurePanel(group).catch(() => {});
+		await this.client?.context?.services?.staffPanel?.refreshEventMessages?.(group.event_id).catch(() => {});
+		await this.#reply(interaction, 'Evenement mis a jour.');
+	}
+
+	async #handleChannelCreateModal(interaction, group) {
+		const nameRaw = interaction.fields.getTextInputValue('tempChannelName')?.trim() || '';
+		const typeRaw = interaction.fields.getTextInputValue('tempChannelType')?.trim() || '';
+		const kind = this.#normalizeChannelKind(typeRaw);
+		if (!kind) {
+			await this.#reply(interaction, 'Type invalide. Utilise "texte" ou "vocal".');
+			return;
+		}
+
+		const name = this.#normalizeChannelName(nameRaw, kind);
+		if (!name) {
+			await this.#reply(interaction, 'Nom de salon invalide.');
+			return;
+		}
+
+		const channel = await this.#createExtraChannel(group, name, kind);
+		if (!channel) {
+			await this.#reply(interaction, 'Impossible de creer le salon.');
+			return;
+		}
+
+		await this.ensurePanel(group).catch(() => {});
+		await this.#reply(interaction, `Salon cree: <#${channel.id}>`);
+	}
+
+	async #handleChannelRenameModal(interaction, group, channelId) {
+		const nameRaw = interaction.fields.getTextInputValue('tempChannelRename')?.trim() || '';
+		if (!nameRaw) {
+			await this.#reply(interaction, 'Nom de salon invalide.');
+			return;
+		}
+
+		const channel = await this.#fetchChannel(channelId);
+		if (!channel) {
+			await this.#reply(interaction, 'Salon introuvable.');
+			return;
+		}
+
+		const kind = channel.type === ChannelType.GuildVoice ? 'voice' : 'text';
+		const name = this.#normalizeChannelName(nameRaw, kind);
+		if (!name) {
+			await this.#reply(interaction, 'Nom de salon invalide.');
+			return;
+		}
+
+		if (channel.name !== name) {
+			await channel.setName(name).catch(() => {});
+		}
+
+		await this.ensurePanel(group).catch(() => {});
+		await this.#reply(interaction, 'Salon mis a jour.');
 	}
 
 	async #handleMembersModal(interaction, group) {
@@ -795,7 +1650,7 @@ class TempGroupService {
 		await this.#reply(interaction, `Salons mis a jour: ${updates.join(', ')}`);
 	}
 
-	async #applyMemberPermissions(group, member, role) {
+	async #applyMemberPermissions(group, member, role, { allowPanel = false } = {}) {
 		const category = await this.#fetchChannel(group.category_id);
 		const textChannel = await this.#fetchChannel(group.text_channel_id);
 		const voiceChannel = await this.#fetchChannel(group.voice_channel_id);
@@ -827,8 +1682,11 @@ class TempGroupService {
 		}
 
 		if (panelChannel) {
+			const panelPerms = allowPanel
+				? { ViewChannel: true, ReadMessageHistory: true }
+				: { ViewChannel: false };
 			await panelChannel.permissionOverwrites
-				.edit(member.id, { ViewChannel: false })
+				.edit(member.id, panelPerms)
 				.catch(() => {});
 		}
 	}
@@ -1009,7 +1867,8 @@ class TempGroupService {
 		return this.#computeExtension(new Date());
 	}
 
-	#slugify(value) {
+	#slugify(value, limit = 32) {
+		const max = Number.isFinite(limit) && limit > 0 ? limit : 32;
 		return String(value || '')
 			.toLowerCase()
 			.normalize('NFD')
@@ -1017,7 +1876,7 @@ class TempGroupService {
 			.replace(/[^a-z0-9\s-]/g, '')
 			.trim()
 			.replace(/\s+/g, '-')
-			.slice(0, 32);
+			.slice(0, max);
 	}
 
 	async #fetchChannel(id) {

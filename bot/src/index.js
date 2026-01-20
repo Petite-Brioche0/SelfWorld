@@ -17,6 +17,7 @@ const { TempGroupService } = require('./services/TempGroupService');
 const { PanelService } = require('./services/PanelService');
 const { StaffPanelService } = require('./services/StaffPanelService');
 const { WelcomeService } = require('./services/WelcomeService');
+const { HubService } = require('./services/HubService');
 const { ThrottleService } = require('./services/ThrottleService');
 
 const logger = pino({
@@ -72,10 +73,12 @@ const client = new Client({
                 services.panel = new PanelService(client, pool, logger);
                 services.staffPanel = new StaffPanelService(client, pool, logger, services);
                 services.throttle = new ThrottleService();
+                services.hub = new HubService(client, pool, logger, services);
                 zoneService.setPanelService(services.panel);
                 policyService.setPanelService(services.panel);
                 policyService.setServices(services);
                 services.welcome = new WelcomeService(client, pool, logger, services);
+                services.hub.setServices(services);
 
 		client.context = {
 			logger,

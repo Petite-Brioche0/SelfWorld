@@ -14,6 +14,9 @@ function resolveCooldown(interaction) {
 
         if (interaction.isModalSubmit()) {
                 const id = interaction.customId || '';
+                if (id.startsWith('hub:')) {
+                        return { key: 'hub.modal', seconds: DEFAULT_THROTTLE_SECONDS };
+                }
                 if (id.startsWith('staff:')) {
                         return { key: 'staff.modal', seconds: DEFAULT_THROTTLE_SECONDS };
                 }
@@ -37,6 +40,9 @@ function resolveCooldown(interaction) {
 
         if (interaction.isButton()) {
                 const id = interaction.customId || '';
+                if (id.startsWith('hub:')) {
+                        return { key: 'hub.button', seconds: 3 };
+                }
                 if (id.startsWith('staff:')) {
                         return { key: 'staff.button', seconds: 3 };
                 }
@@ -69,6 +75,9 @@ function resolveCooldown(interaction) {
 
         if (interaction.isStringSelectMenu()) {
                 const id = interaction.customId || '';
+                if (id.startsWith('temp:')) {
+                        return { key: 'temp.select', seconds: 2 };
+                }
                 if (id.startsWith('panel:policy:')) {
                         return { key: 'panel.policy', seconds: 2 };
                 }
@@ -183,6 +192,10 @@ module.exports = {
                                                 return;
                                         }
                                 }
+                                if (id.startsWith('temp:')) {
+                                        await services.tempGroup.handleSelectMenu(interaction);
+                                        return;
+                                }
                                 if (id.startsWith('panel:policy:set:')) {
                                         await services.policy.handlePolicySelect(interaction);
                                         return;
@@ -203,6 +216,10 @@ module.exports = {
 
                         if (interaction.isButton()) {
                                 const id = customId;
+                                if (id.startsWith('hub:')) {
+                                        await services.hub?.handleButton?.(interaction);
+                                        return;
+                                }
                                 if (id.startsWith('welcome:')) {
                                         await services.welcome.handleButton(interaction);
                                         return;
@@ -250,6 +267,10 @@ module.exports = {
 
                         if (interaction.type === InteractionType.ModalSubmit) {
                                 const id = customId;
+                                if (id.startsWith('hub:')) {
+                                        await services.hub?.handleModal?.(interaction);
+                                        return;
+                                }
                                 if (id.startsWith('temp:')) {
                                         await services.tempGroup.handleModal(interaction);
                                         return;

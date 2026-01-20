@@ -736,22 +736,22 @@ class PanelService {
                        );
                }
 
+               const profileTitle = zoneRow.profile_title || zoneRow.name || 'Profil public';
+               const profileDesc = zoneRow.profile_desc?.trim() ||
+                       'Aucune description configurée pour l’instant.';
+               embed.addFields(
+                       { name: 'Titre public', value: profileTitle.slice(0, 100), inline: false },
+                       { name: 'Description', value: profileDesc.slice(0, 200), inline: false }
+               );
+
+               const tags = Array.isArray(zoneRow.profile_tags)
+                       ? zoneRow.profile_tags
+                       : this.#parseTags(zoneRow.profile_tags);
+               if (tags?.length) {
+                       embed.addFields({ name: 'Tags', value: tags.map((tag) => `#${tag}`).join(' · '), inline: false });
+               }
+
                if (policy === 'open') {
-                       const profileTitle = zoneRow.profile_title || zoneRow.name || 'Profil public';
-                       const profileDesc = zoneRow.profile_desc?.trim() ||
-                               'Aucune description configurée pour l’instant.';
-                       embed.addFields(
-                               { name: 'Titre public', value: profileTitle.slice(0, 100), inline: false },
-                               { name: 'Description', value: profileDesc.slice(0, 200), inline: false }
-                       );
-
-                       const tags = Array.isArray(zoneRow.profile_tags)
-                               ? zoneRow.profile_tags
-                               : this.#parseTags(zoneRow.profile_tags);
-                       if (tags?.length) {
-                               embed.addFields({ name: 'Tags', value: tags.map((tag) => `#${tag}`).join(' · '), inline: false });
-                       }
-
                        const activityService = this.#getActivityService();
                        if (activityService?.getZoneActivityScore && activityService?.buildProgressBar) {
                                try {
@@ -781,15 +781,13 @@ class PanelService {
                        );
                components.push(new ActionRowBuilder().addComponents(policySelect));
 
-               if (policy === 'open') {
-                       const buttonRow = new ActionRowBuilder().addComponents(
-                               new ButtonBuilder()
-                                       .setCustomId(`panel:policy:profile:${zoneRow.id}`)
-                                       .setLabel('Personnaliser le profil public')
-                                       .setStyle(ButtonStyle.Primary)
-                       );
-                       components.push(buttonRow);
-               }
+               const buttonRow = new ActionRowBuilder().addComponents(
+                       new ButtonBuilder()
+                               .setCustomId(`panel:policy:profile:${zoneRow.id}`)
+                               .setLabel('Personnaliser le profil public')
+                               .setStyle(ButtonStyle.Primary)
+               );
+               components.push(buttonRow);
 
                if (policy === 'ask') {
                        const joinModeSelect = new StringSelectMenuBuilder()

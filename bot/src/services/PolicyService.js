@@ -523,10 +523,6 @@ class PolicyService {
                         await interaction.reply({ content: 'Zone introuvable.', flags: MessageFlags.Ephemeral }).catch(() => {});
                         return true;
                 }
-                if (zone.policy !== 'open') {
-                        await interaction.reply({ content: 'La zone doit être en politique « open ».', flags: MessageFlags.Ephemeral }).catch(() => {});
-                        return true;
-                }
                 if (!(await this.#isZoneOwner(zone, interaction.user.id))) {
                         await interaction.reply({ content: 'Seul l’owner peut modifier le profil.', flags: MessageFlags.Ephemeral }).catch(() => {});
                         return true;
@@ -780,8 +776,6 @@ class PolicyService {
                 await this.#ensureSchema();
                 const zone = await this.#getZone(zoneId);
                 if (!zone) throw new Error('Zone introuvable');
-                if (zone.policy !== 'open') throw new Error('La zone doit être en mode open');
-
                 const updates = {};
 
                 const title = (data.profile_title || '').trim();
@@ -1369,16 +1363,7 @@ class PolicyService {
 
                 let message = null;
 
-                if (ownerId) {
-                        try {
-                                const ownerUser = await this.client.users.fetch(ownerId);
-                                message = await ownerUser.send({ embeds: [embed], components }).catch(() => null);
-                        } catch (err) {
-                                this.logger?.warn({ err, ownerId }, 'Failed to DM owner for zone request');
-                        }
-                }
-
-                if (!message && request.guild_id) {
+                if (request.guild_id) {
                         const channelId = await this.#getRequestsChannelId(request.guild_id);
                         if (channelId) {
                                 try {
@@ -1392,6 +1377,15 @@ class PolicyService {
                                 } catch (err) {
                                         this.logger?.warn({ err, channelId }, 'Failed to forward creation request to channel');
                                 }
+                        }
+                }
+
+                if (!message && ownerId) {
+                        try {
+                                const ownerUser = await this.client.users.fetch(ownerId);
+                                message = await ownerUser.send({ embeds: [embed], components }).catch(() => null);
+                        } catch (err) {
+                                this.logger?.warn({ err, ownerId }, 'Failed to DM owner for zone request');
                         }
                 }
 
