@@ -16,9 +16,9 @@ If you discover a security vulnerability in SelfWorld, we appreciate your help i
 
 ### How to Report
 
-1. **GitHub Security Advisories (preferred)**: Use [GitHub's private vulnerability reporting](https://github.com/[YOUR_GITHUB_USERNAME]/SelfWorld/security/advisories/new) to submit a report directly on the repository.
+1. **GitHub Security Advisories (preferred)**: Use [GitHub's private vulnerability reporting](https://github.com/Petite-Brioche0/SelfWorld/security/advisories/new) to submit a report directly on the repository.
 
-2. **Email**: Send a detailed report to **[YOUR_EMAIL]** with the subject line: `[SelfWorld Security] Brief description`.
+2. **Email**: Send a detailed report to **kannaaitchiko@gmail.com** with the subject line: `[SelfWorld Security] Brief description`.
 
 ### What to Include
 

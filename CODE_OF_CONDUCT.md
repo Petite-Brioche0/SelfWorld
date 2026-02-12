@@ -59,8 +59,8 @@ public spaces.
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the project maintainers at:
 
-* **Email**: [YOUR_EMAIL]
-* **Discord**: [YOUR_DISCORD]
+* **Email**: kannaaitchiko@gmail.com
+* **Discord**: kannaaitchiko
 * **GitHub**: Open a private security advisory on the repository
 
 All complaints will be reviewed and investigated promptly and fairly. All project
