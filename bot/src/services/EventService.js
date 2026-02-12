@@ -1,5 +1,6 @@
 // Temp group system for events
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
+const { columnExists } = require('../utils/serviceHelpers');
 
 class EventService {
 	#schemaReady = false;
@@ -48,7 +49,7 @@ class EventService {
                 });
 
 		const addColumnIfMissing = async (column, ddl) => {
-			const exists = await this.#columnExists('events', column);
+			const exists = await columnExists(this.db, 'events', column);
 			if (!exists) {
 				await this.db.query(`ALTER TABLE events ADD COLUMN ${ddl}`).catch(() => {
                                         // Expected failure if column already exists - intentionally silent
@@ -76,7 +77,7 @@ class EventService {
                         });
 
 		const addParticipantColumnIfMissing = async (column, ddl) => {
-			const exists = await this.#columnExists('event_participants', column);
+			const exists = await columnExists(this.db, 'event_participants', column);
 			if (!exists) {
 				await this.db.query(`ALTER TABLE event_participants ADD COLUMN ${ddl}`).catch(() => {
                                         // Expected failure if column already exists - intentionally silent
@@ -110,12 +111,14 @@ class EventService {
 		}
 
 		if (event.status !== 'running') {
-			await this.#reply(interaction, '⚠️ **Événement non actif**\n\nCet événement n\'a pas encore démarré ou n\'est plus disponible.');
+			const msg = event.status === 'ended'
+				? '⚠️ **Événement terminé**\n\nCet événement est terminé. Consulte d\'autres événements disponibles !'
+				: '⚠️ **Événement non actif**\n\nCet événement n\'a pas encore démarré ou n\'est plus disponible.';
+			await this.#reply(interaction, msg);
 			return;
 		}
 
-		const ended = event.status === 'ended' || (event.ends_at && new Date(event.ends_at) < new Date());
-		if (ended) {
+		if (event.ends_at && new Date(event.ends_at) < new Date()) {
 			await this.#reply(interaction, '⚠️ **Événement terminé**\n\nCet événement est terminé. Consulte d\'autres événements disponibles !');
 			return;
 		}
@@ -290,18 +293,6 @@ class EventService {
 
 	#getLogger() {
 		return this.logger || this.client?.context?.logger || null;
-	}
-
-	async #columnExists(table, column) {
-		const [rows] = await this.db.query(
-			`SELECT COUNT(*) AS n
-                         FROM information_schema.COLUMNS
-                         WHERE TABLE_SCHEMA = DATABASE()
-                           AND TABLE_NAME = ?
-                           AND COLUMN_NAME = ?`,
-			[table, column]
-		);
-		return Number(rows?.[0]?.n || 0) > 0;
 	}
 }
 

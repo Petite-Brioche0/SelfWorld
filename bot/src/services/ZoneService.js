@@ -451,13 +451,11 @@ class ZoneService {
                         ['DELETE FROM anon_channels WHERE zone_id = ?', [zoneId]],
                         ['DELETE FROM anon_logs WHERE source_zone_id = ?', [zoneId]],
                         ['DELETE FROM zone_members WHERE zone_id = ?', [zoneId]],
-                        ['DELETE FROM join_codes WHERE zone_id = ?', [zoneId]],
-                        ['DELETE FROM join_requests WHERE zone_id = ?', [zoneId]],
+                        ['DELETE FROM zone_invite_codes WHERE zone_id = ?', [zoneId]],
+                        ['DELETE FROM zone_join_requests WHERE zone_id = ?', [zoneId]],
                         ['DELETE FROM zone_activity WHERE zone_id = ?', [zoneId]],
                         ['DELETE FROM zone_roles WHERE zone_id = ?', [zoneId]],
                         ['DELETE FROM zone_channels WHERE zone_id = ?', [zoneId]],
-                        ['DELETE FROM zone_invite_codes WHERE zone_id = ?', [zoneId]],
-                        ['DELETE FROM zone_join_requests WHERE zone_id = ?', [zoneId]],
                         [
                                 'DELETE FROM temp_group_members WHERE group_id IN (SELECT id FROM temp_groups WHERE zone_id = ?)',
                                 [zoneId]
@@ -778,8 +776,8 @@ class ZoneService {
                 const code = crypto.randomBytes(4).toString('hex').toUpperCase();
                 const expiresAt = new Date(Date.now() + Math.max(5, ttlMinutes) * 60 * 1000);
                 await this.db.query(
-                        'INSERT INTO join_codes (zone_id, issued_to_user_id, code, expires_at, used) VALUES (?, ?, ?, ?, 0)',
-                        [zone.id, userId, code, expiresAt]
+                        'INSERT INTO zone_invite_codes (zone_id, code, created_by, expires_at, max_uses, uses) VALUES (?, ?, ?, ?, 1, 0)',
+                        [zone.id, code, userId, expiresAt]
                 );
                 return { code, expiresAt };
         }

@@ -103,8 +103,8 @@ class WelcomeService {
                         .setDescription(
                                 [
                                         '• Les zones sont des espaces isolés : seuls leurs membres voient les discussions.',
-                                        '• Pas de liste globale des membres, tu restes discret tant que tu n’entres pas.',
-                                        '• Pour rejoindre : découvre les zones ouvertes, demande l’accès ou saisis un code reçu.',
+                                        '• Pas de liste globale des membres, tu restes discret tant que tu n\'entres pas.',
+                                        '• Pour rejoindre : découvre les zones ouvertes, demande l\'accès ou saisis un code reçu.',
                                         '• Pour créer ta zone, utilise « Demander une zone » et remplis la demande.',
                                         '• Reste respectueux : pas de doxx, pas de harcèlement, respecte les règles du serveur.'
                                 ].join('\n')
@@ -363,7 +363,7 @@ class WelcomeService {
 
                 const codeInput = new TextInputBuilder()
                         .setCustomId('welcomeJoinCodeInput')
-                        .setLabel('Code d’invitation')
+                        .setLabel('Code d\'invitation')
                         .setStyle(TextInputStyle.Short)
                         .setRequired(true)
                         .setMaxLength(6)

@@ -1,0 +1,8 @@
+# Default owner for everything in the repo
+* @Petite-Brioche0
+
+# Bot source code
+/bot/ @Petite-Brioche0
+
+# CI/CD and GitHub config
+/.github/ @Petite-Brioche0

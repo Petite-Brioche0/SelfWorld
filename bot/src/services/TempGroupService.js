@@ -11,6 +11,7 @@ const {
 	TextInputBuilder,
 	TextInputStyle
 } = require('discord.js');
+const { normalizeColor, columnExists, parseParticipants, formatParticipants } = require('../utils/serviceHelpers');
 
 class TempGroupService {
 	#schemaReady = false;
@@ -68,7 +69,7 @@ class TempGroupService {
 		});
 
 		const addColumnIfMissing = async (column, ddl) => {
-			const exists = await this.#columnExists('temp_groups', column);
+			const exists = await columnExists(this.db, 'temp_groups', column);
 			if (!exists) {
 				await this.db.query(`ALTER TABLE temp_groups ADD COLUMN ${ddl}`).catch((_err) => {
 					// Expected failure if column already exists - intentionally silent
@@ -88,7 +89,7 @@ class TempGroupService {
 		await addColumnIfMissing('event_id', 'event_id BIGINT UNSIGNED NULL');
 
 		const addMemberColumnIfMissing = async (column, ddl) => {
-			const exists = await this.#columnExists('temp_group_members', column);
+			const exists = await columnExists(this.db, 'temp_group_members', column);
 			if (!exists) {
 				await this.db.query(`ALTER TABLE temp_group_members ADD COLUMN ${ddl}`).catch((_err) => {
 					// Expected failure if column already exists - intentionally silent
@@ -1026,11 +1027,10 @@ class TempGroupService {
 	}
 
 	async #getMemberPreview(groupId, role, limit = 20) {
+		const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 100));
 		const [rows] = await this.#safeQuery(
-			`SELECT user_id FROM temp_group_members
-                         WHERE temp_group_id = ? AND role = ?
-                         ORDER BY user_id LIMIT ${limit}`,
-			[groupId, role]
+			'SELECT user_id FROM temp_group_members WHERE temp_group_id = ? AND role = ? ORDER BY user_id LIMIT ?',
+			[groupId, role, safeLimit]
 		);
 		return (rows || []).map((row) => row.user_id);
 	}
@@ -1228,55 +1228,6 @@ class TempGroupService {
 		return Number(rows?.[0]?.n || 0);
 	}
 
-	#parseParticipants(raw) {
-		const value = String(raw || '').trim();
-		if (!value) return { min: null, max: null };
-
-		let min = null;
-		let max = null;
-
-		const minMatch = value.match(/min\s*=\s*(\d+)/i);
-		const maxMatch = value.match(/max\s*=\s*(\d+)/i);
-		if (minMatch) min = Number(minMatch[1]);
-		if (maxMatch) max = Number(maxMatch[1]);
-
-		if (!minMatch && !maxMatch) {
-			const pairMatch = value.match(/(\d+)\s*\/\s*(\d+)/);
-			if (pairMatch) {
-				min = Number(pairMatch[1]);
-				max = Number(pairMatch[2]);
-			} else if (/^\d+$/.test(value)) {
-				max = Number(value);
-			}
-		}
-
-		if (min && max && min > max) {
-			[min, max] = [max, min];
-		}
-
-		return {
-			min: Number.isFinite(min) && min > 0 ? min : null,
-			max: Number.isFinite(max) && max > 0 ? max : null
-		};
-	}
-
-	#formatParticipants(existing) {
-		if (!existing) return '';
-		const min = existing.min_participants ? Number(existing.min_participants) : null;
-		const max = existing.max_participants ? Number(existing.max_participants) : null;
-		if (!min && !max) return '';
-		if (min && max) return `min=${min} max=${max}`;
-		if (min) return `min=${min}`;
-		return `max=${max}`;
-	}
-
-	#normalizeColor(value) {
-		if (!value) return null;
-		const trimmed = String(value).trim().replace(/^#/, '');
-		if (!/^[0-9a-fA-F]{6}$/.test(trimmed)) return null;
-		return `#${trimmed.toUpperCase()}`;
-	}
-
 	#parseOptions(raw) {
 		const result = {};
 		if (!raw) return result;
@@ -1397,7 +1348,7 @@ class TempGroupService {
 			.setRequired(false)
 			.setMaxLength(64)
 			.setPlaceholder('min=5 max=20')
-			.setValue(this.#formatParticipants(event));
+			.setValue(formatParticipants(event));
 
 		const optionsInput = new TextInputBuilder()
 			.setCustomId('tempEventOptions')
@@ -1436,13 +1387,13 @@ class TempGroupService {
 			return;
 		}
 
-		const embedColor = colorRaw ? this.#normalizeColor(colorRaw) : null;
+		const embedColor = colorRaw ? normalizeColor(colorRaw) : null;
 		if (colorRaw && !embedColor) {
 			await this.#reply(interaction, 'Couleur invalide. Utilise le format #RRGGBB.');
 			return;
 		}
 
-		const limits = this.#parseParticipants(participantsRaw);
+		const limits = parseParticipants(participantsRaw);
 		const options = this.#parseOptions(optionsRaw);
 		const tagRaw = options.tag || options.type || '';
 		const tagValue = tagRaw ? String(tagRaw).trim().slice(0, 128) : null;
@@ -1972,18 +1923,6 @@ class TempGroupService {
 		const modRoleId = this.client?.context?.config?.modRoleId || process.env.MOD_ROLE_ID;
 		if (modRoleId && interaction.member?.roles?.cache?.has?.(modRoleId)) return true;
 		return Boolean(interaction.memberPermissions?.has?.(PermissionFlagsBits.Administrator));
-	}
-
-	async #columnExists(table, column) {
-		const [rows] = await this.db.query(
-			`SELECT COUNT(*) AS n
-                         FROM information_schema.COLUMNS
-                         WHERE TABLE_SCHEMA = DATABASE()
-                           AND TABLE_NAME = ?
-                           AND COLUMN_NAME = ?`,
-			[table, column]
-		);
-		return Number(rows?.[0]?.n || 0) > 0;
 	}
 }
 

@@ -9,6 +9,7 @@ const {
 	TextInputStyle,
 	PermissionFlagsBits
 } = require('discord.js');
+const { normalizeColor, columnExists, parseParticipants, formatParticipants, extractImageAttachment } = require('../utils/serviceHelpers');
 
 const DEFAULT_COLOR = 0x5865f2;
 
@@ -41,7 +42,7 @@ class StaffPanelService {
 			return false;
 		}
 
-		const attachment = this.#extractImageAttachment(message);
+		const attachment = extractImageAttachment(message);
 		if (!attachment) {
 			await message.reply('❌ **Fichier non valide**\n\nMerci d\'envoyer une **image** (formats acceptés : PNG, JPG, GIF, WEBP).').catch((err) => {
 				if (err?.code === 10062 || err?.rawError?.code === 10062) return;
@@ -161,7 +162,7 @@ class StaffPanelService {
 			await this.ensureStaffPanels().catch((err) => {
 				this.logger?.warn({ err }, 'Failed to refresh staff panel');
 			});
-			await this.#followUp(interaction, { content: '✅ **Panneau actualisé**\n\nLe panneau staff a été mis à jour avec succès.', flags: MessageFlags.Ephemeral });
+			await this.#reply(interaction, { content: '✅ **Panneau actualisé**\n\nLe panneau staff a été mis à jour avec succès.', flags: MessageFlags.Ephemeral });
 			return true;
 		}
 
@@ -191,15 +192,15 @@ class StaffPanelService {
 			});
 			const announcement = await this.#getAnnouncement(announcementId);
 			if (!announcement) {
-				await this.#followUp(interaction, { content: '❌ **Annonce introuvable**\n\nCette annonce n\'existe plus ou a été supprimée.', flags: MessageFlags.Ephemeral });
+				await this.#reply(interaction, { content: '❌ **Annonce introuvable**\n\nCette annonce n\'existe plus ou a été supprimée.', flags: MessageFlags.Ephemeral });
 				return true;
 			}
 			try {
 				await this.#sendAnnouncementNow(announcement, interaction.user.id);
-				await this.#followUp(interaction, { content: '✅ **Annonce envoyée**\n\nTon annonce a été diffusée avec succès à toutes les zones.', flags: MessageFlags.Ephemeral });
+				await this.#reply(interaction, { content: '✅ **Annonce envoyée**\n\nTon annonce a été diffusée avec succès à toutes les zones.', flags: MessageFlags.Ephemeral });
 			} catch (err) {
 				this.logger?.warn({ err, announcementId }, 'Failed to send announcement');
-				await this.#followUp(interaction, {
+				await this.#reply(interaction, {
 					content: '❌ **Erreur d\'envoi**\n\nImpossible d\'envoyer l\'annonce pour le moment. Réessaye dans quelques instants.',
 					flags: MessageFlags.Ephemeral
 				});
@@ -245,15 +246,15 @@ class StaffPanelService {
 			});
 			const event = await this.#getEventDraft(eventId);
 			if (!event) {
-				await this.#followUp(interaction, { content: '❌ **Événement introuvable**\n\nCet événement n\'existe plus ou a été supprimé.', flags: MessageFlags.Ephemeral });
+				await this.#reply(interaction, { content: '❌ **Événement introuvable**\n\nCet événement n\'existe plus ou a été supprimé.', flags: MessageFlags.Ephemeral });
 				return true;
 			}
 			try {
 				await this.#activateEvent(event, interaction.user.id);
-				await this.#followUp(interaction, { content: '✅ **Événement activé**\n\nTon événement a été publié avec succès et la zone temporaire est maintenant active.', flags: MessageFlags.Ephemeral });
+				await this.#reply(interaction, { content: '✅ **Événement activé**\n\nTon événement a été publié avec succès et la zone temporaire est maintenant active.', flags: MessageFlags.Ephemeral });
 			} catch (err) {
 				this.logger?.warn({ err, eventId }, 'Failed to send event');
-				await this.#followUp(interaction, {
+				await this.#reply(interaction, {
 					content: '❌ **Erreur d\'activation**\n\nImpossible d\'activer l\'événement pour le moment. Réessaye dans quelques instants.',
 					flags: MessageFlags.Ephemeral
 				});
@@ -507,7 +508,7 @@ class StaffPanelService {
 			.setRequired(false)
 			.setMaxLength(64)
 			.setPlaceholder('min=5 max=20')
-			.setValue(this.#formatParticipants(existing));
+			.setValue(formatParticipants(existing));
 
 		const optionsInput = new TextInputBuilder()
 			.setCustomId('eventOptions')
@@ -581,7 +582,7 @@ class StaffPanelService {
 			const tagValue = tagRaw ? tagRaw.slice(0, 128) : '';
 			const imageRaw = interaction.fields.getTextInputValue('announceImage')?.trim() || '';
 
-			const embedColor = colorRaw ? this.#normalizeColor(colorRaw) : null;
+			const embedColor = colorRaw ? normalizeColor(colorRaw) : null;
 			if (colorRaw && !embedColor) {
 				await this.#reply(interaction, {
 					content: '❌ **Couleur invalide**\n\n' +
@@ -813,7 +814,7 @@ class StaffPanelService {
 			const optionsRaw = interaction.fields.getTextInputValue('eventOptions') || '';
 			const options = this.#parseOptions(optionsRaw);
 
-			const embedColor = colorRaw ? this.#normalizeColor(colorRaw) : null;
+			const embedColor = colorRaw ? normalizeColor(colorRaw) : null;
 			if (colorRaw && !embedColor) {
 				await this.#reply(interaction, {
 					content: '❌ **Couleur invalide**\n\n' +
@@ -845,7 +846,7 @@ class StaffPanelService {
 				pendingImage = true;
 			}
 
-			const participantLimits = this.#parseParticipants(participantsRaw);
+			const participantLimits = parseParticipants(participantsRaw);
 
 			if (!name) {
 				await this.#reply(interaction, { content: '❌ **Titre manquant**\n\nLe titre de l\'événement est **obligatoire**.\nMerci de remplir ce champ.', flags: MessageFlags.Ephemeral });
@@ -1453,48 +1454,6 @@ class StaffPanelService {
 		return true;
 	}
 
-	#parseParticipants(raw) {
-		const value = String(raw || '').trim();
-		if (!value) return { min: null, max: null };
-
-		let min = null;
-		let max = null;
-
-		const minMatch = value.match(/min\s*=\s*(\d+)/i);
-		const maxMatch = value.match(/max\s*=\s*(\d+)/i);
-		if (minMatch) min = Number(minMatch[1]);
-		if (maxMatch) max = Number(maxMatch[1]);
-
-		if (!minMatch && !maxMatch) {
-			const pairMatch = value.match(/(\d+)\s*\/\s*(\d+)/);
-			if (pairMatch) {
-				min = Number(pairMatch[1]);
-				max = Number(pairMatch[2]);
-			} else if (/^\d+$/.test(value)) {
-				max = Number(value);
-			}
-		}
-
-		if (min && max && min > max) {
-			[min, max] = [max, min];
-		}
-
-		return {
-			min: Number.isFinite(min) && min > 0 ? min : null,
-			max: Number.isFinite(max) && max > 0 ? max : null
-		};
-	}
-
-	#formatParticipants(existing) {
-		if (!existing) return '';
-		const min = existing.min_participants ? Number(existing.min_participants) : null;
-		const max = existing.max_participants ? Number(existing.max_participants) : null;
-		if (!min && !max) return '';
-		if (min && max) return `min=${min} max=${max}`;
-		if (min) return `min=${min}`;
-		return `max=${max}`;
-	}
-
 	async #countEventParticipants(eventId) {
 		if (!eventId) return 0;
 		try {
@@ -1533,16 +1492,9 @@ class StaffPanelService {
 		return Number.isFinite(raw) && raw > 0 ? raw : 24;
 	}
 
-	#normalizeColor(value) {
-		if (!value) return null;
-		const trimmed = String(value).trim().replace(/^#/, '');
-		if (!/^[0-9a-fA-F]{6}$/.test(trimmed)) return null;
-		return `#${trimmed.toUpperCase()}`;
-	}
-
 	#resolveColor(value) {
 		if (!value) return null;
-		const normalized = this.#normalizeColor(value);
+		const normalized = normalizeColor(value);
 		if (!normalized) return null;
 		return parseInt(normalized.slice(1), 16);
 	}
@@ -1589,15 +1541,6 @@ class StaffPanelService {
 		});
 	}
 
-	#extractImageAttachment(message) {
-		const attachments = message?.attachments ? [...message.attachments.values()] : [];
-		for (const attachment of attachments) {
-			if (attachment?.contentType?.startsWith?.('image/')) return attachment;
-			if (attachment?.url && /\.(png|jpe?g|gif|webp)$/i.test(attachment.url)) return attachment;
-		}
-		return null;
-	}
-
 	#mergePreviewContent(prefix, content) {
 		const base = content ? `${prefix}\n\n${content}` : prefix;
 		return base.length > 2000 ? `${base.slice(0, 1997)}...` : base;
@@ -1624,27 +1567,6 @@ class StaffPanelService {
 		}
 	}
 
-	async #followUp(interaction, payload) {
-		if (!interaction) return;
-		if (!interaction.deferred && !interaction.replied) {
-			await interaction.reply(payload);
-		} else {
-			await interaction.followUp(payload);
-		}
-	}
-
-	async #columnExists(table, column) {
-		const [rows] = await this.db.query(
-			`SELECT COUNT(*) AS n
-                         FROM information_schema.COLUMNS
-                         WHERE TABLE_SCHEMA = DATABASE()
-                           AND TABLE_NAME = ?
-                           AND COLUMN_NAME = ?`,
-			[table, column]
-		);
-		return Number(rows?.[0]?.n || 0) > 0;
-	}
-
 	async #ensureSchema() {
 		if (this.#schemaReady) return;
 		await this.db.query(`CREATE TABLE IF NOT EXISTS staff_announcements (
@@ -1665,46 +1587,46 @@ class StaffPanelService {
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
 
 
-		if (!(await this.#columnExists('settings', 'events_admin_message_id'))) {
+		if (!(await columnExists(this.db, 'settings', 'events_admin_message_id'))) {
 			await this.db
 				.query('ALTER TABLE settings ADD COLUMN events_admin_message_id VARCHAR(32) NULL')
 				.catch(() => {});
 		}
 
-		if (!(await this.#columnExists('events', 'guild_id'))) {
+		if (!(await columnExists(this.db, 'events', 'guild_id'))) {
 			await this.db.query('ALTER TABLE events ADD COLUMN guild_id VARCHAR(32) NULL').catch(() => {});
 		}
-		if (!(await this.#columnExists('events', 'description'))) {
+		if (!(await columnExists(this.db, 'events', 'description'))) {
 			await this.db.query('ALTER TABLE events ADD COLUMN description TEXT NULL').catch(() => {});
 		}
-		if (!(await this.#columnExists('events', 'created_by'))) {
+		if (!(await columnExists(this.db, 'events', 'created_by'))) {
 			await this.db.query('ALTER TABLE events ADD COLUMN created_by VARCHAR(32) NULL').catch(() => {});
 		}
-		if (!(await this.#columnExists('events', 'scheduled_at'))) {
+		if (!(await columnExists(this.db, 'events', 'scheduled_at'))) {
 			await this.db.query('ALTER TABLE events ADD COLUMN scheduled_at DATETIME NULL').catch(() => {});
 		}
-		if (!(await this.#columnExists('events', 'message_content'))) {
+		if (!(await columnExists(this.db, 'events', 'message_content'))) {
 			await this.db.query('ALTER TABLE events ADD COLUMN message_content TEXT NULL').catch(() => {});
 		}
-		if (!(await this.#columnExists('events', 'embed_title'))) {
+		if (!(await columnExists(this.db, 'events', 'embed_title'))) {
 			await this.db.query('ALTER TABLE events ADD COLUMN embed_title VARCHAR(256) NULL').catch(() => {});
 		}
-		if (!(await this.#columnExists('events', 'embed_color'))) {
+		if (!(await columnExists(this.db, 'events', 'embed_color'))) {
 			await this.db.query('ALTER TABLE events ADD COLUMN embed_color VARCHAR(7) NULL').catch(() => {});
 		}
-		if (!(await this.#columnExists('events', 'embed_image'))) {
+		if (!(await columnExists(this.db, 'events', 'embed_image'))) {
 			await this.db.query('ALTER TABLE events ADD COLUMN embed_image VARCHAR(500) NULL').catch(() => {});
 		}
-		if (!(await this.#columnExists('events', 'game'))) {
+		if (!(await columnExists(this.db, 'events', 'game'))) {
 			await this.db.query('ALTER TABLE events ADD COLUMN game VARCHAR(120) NULL').catch(() => {});
 		}
-		if (!(await this.#columnExists('events', 'min_participants'))) {
+		if (!(await columnExists(this.db, 'events', 'min_participants'))) {
 			await this.db.query('ALTER TABLE events ADD COLUMN min_participants INT NULL').catch(() => {});
 		}
-		if (!(await this.#columnExists('events', 'max_participants'))) {
+		if (!(await columnExists(this.db, 'events', 'max_participants'))) {
 			await this.db.query('ALTER TABLE events ADD COLUMN max_participants INT NULL').catch(() => {});
 		}
-		if (!(await this.#columnExists('events', 'temp_group_id'))) {
+		if (!(await columnExists(this.db, 'events', 'temp_group_id'))) {
 			await this.db.query('ALTER TABLE events ADD COLUMN temp_group_id BIGINT UNSIGNED NULL').catch(() => {});
 		}
 
@@ -1712,25 +1634,25 @@ class StaffPanelService {
 			.query("ALTER TABLE events MODIFY COLUMN status ENUM('draft','scheduled','running','ended') NOT NULL DEFAULT 'draft'")
 			.catch(() => {});
 
-		if (!(await this.#columnExists('temp_groups', 'guild_id'))) {
+		if (!(await columnExists(this.db, 'temp_groups', 'guild_id'))) {
 			await this.db.query('ALTER TABLE temp_groups ADD COLUMN guild_id VARCHAR(32) NULL').catch(() => {});
 		}
-		if (!(await this.#columnExists('temp_groups', 'text_channel_id'))) {
+		if (!(await columnExists(this.db, 'temp_groups', 'text_channel_id'))) {
 			await this.db.query('ALTER TABLE temp_groups ADD COLUMN text_channel_id VARCHAR(32) NULL').catch(() => {});
 		}
-		if (!(await this.#columnExists('temp_groups', 'voice_channel_id'))) {
+		if (!(await columnExists(this.db, 'temp_groups', 'voice_channel_id'))) {
 			await this.db.query('ALTER TABLE temp_groups ADD COLUMN voice_channel_id VARCHAR(32) NULL').catch(() => {});
 		}
-		if (!(await this.#columnExists('temp_groups', 'panel_channel_id'))) {
+		if (!(await columnExists(this.db, 'temp_groups', 'panel_channel_id'))) {
 			await this.db.query('ALTER TABLE temp_groups ADD COLUMN panel_channel_id VARCHAR(32) NULL').catch(() => {});
 		}
-		if (!(await this.#columnExists('temp_groups', 'panel_message_id'))) {
+		if (!(await columnExists(this.db, 'temp_groups', 'panel_message_id'))) {
 			await this.db.query('ALTER TABLE temp_groups ADD COLUMN panel_message_id VARCHAR(32) NULL').catch(() => {});
 		}
-		if (!(await this.#columnExists('temp_groups', 'created_by'))) {
+		if (!(await columnExists(this.db, 'temp_groups', 'created_by'))) {
 			await this.db.query('ALTER TABLE temp_groups ADD COLUMN created_by VARCHAR(32) NULL').catch(() => {});
 		}
-		if (!(await this.#columnExists('temp_groups', 'event_id'))) {
+		if (!(await columnExists(this.db, 'temp_groups', 'event_id'))) {
 			await this.db.query('ALTER TABLE temp_groups ADD COLUMN event_id BIGINT UNSIGNED NULL').catch(() => {});
 		}
 

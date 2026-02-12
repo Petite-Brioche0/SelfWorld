@@ -11,6 +11,7 @@ const {
         PermissionFlagsBits,
         MessageFlags
 } = require('discord.js');
+const { normalizeColor, columnExists } = require('../utils/serviceHelpers');
 
 class PanelService {
 	#schemaReady = false;
@@ -295,7 +296,7 @@ class PanelService {
                                 actionRow.addComponents(
                                         new ButtonBuilder()
                                                 .setCustomId(`panel:member:kick-confirm:${zoneRow.id}:${selectedMember.id}`)
-                                                .setLabel('Confirmer l’exclusion')
+                                                .setLabel('Confirmer l\'exclusion')
                                                 .setStyle(ButtonStyle.Danger),
                                         new ButtonBuilder()
                                                 .setCustomId(`panel:member:kick-cancel:${zoneRow.id}:${selectedMember.id}`)
@@ -543,7 +544,7 @@ class PanelService {
 		const description =
 			channel.type === ChannelType.GuildText
 				? channel.topic?.trim()?.slice(0, 1024) || 'Aucune description.'
-				: 'Les salons vocaux n’ont pas de description.';
+				: 'Les salons vocaux n\'ont pas de description.';
 
 		embed
 			.setTitle(`🧭 Salon : ${channel.name}`)
@@ -682,7 +683,7 @@ class PanelService {
 
                const embed = new EmbedBuilder()
                        .setColor(resolvedColor)
-                       .setTitle('🔐 Politique d’entrée')
+                       .setTitle('🔐 Politique d\'entrée')
                        .setDescription(
                                `Politique actuelle : **${policy}**\n${helperMap[policy] || ''}`.trim()
                        );
@@ -711,7 +712,7 @@ class PanelService {
 
                const profileTitle = zoneRow.profile_title || zoneRow.name || 'Profil public';
                const profileDesc = zoneRow.profile_desc?.trim() ||
-                       'Aucune description configurée pour l’instant.';
+                       'Aucune description configurée pour l\'instant.';
                embed.addFields(
                        { name: 'Titre public', value: profileTitle.slice(0, 100), inline: false },
                        { name: 'Description', value: profileDesc.slice(0, 200), inline: false }
@@ -1050,15 +1051,6 @@ class PanelService {
 
 		return overwrites;
 	}
-
-        #normalizeColor(value) {
-                if (!value) return null;
-                let input = value.trim();
-                if (!input.length) return null;
-                if (input.startsWith('#')) input = input.slice(1);
-                if (!/^[0-9a-fA-F]{6}$/.test(input)) return null;
-                return `#${input.toUpperCase()}`;
-        }
 
         #parseTags(raw) {
                 if (!raw) return [];
@@ -1691,7 +1683,7 @@ class PanelService {
 				await interaction.reply({ content: '⚠️ **Nom requis**\n\nTu dois fournir un nom pour créer ce rôle.', flags: MessageFlags.Ephemeral }).catch(() => { });
 				return true;
 			}
-			const color = colorRaw ? this.#normalizeColor(colorRaw) : null;
+			const color = colorRaw ? normalizeColor(colorRaw) : null;
 			if (colorRaw && !color) {
 				await interaction.reply({ content: '❌ **Couleur invalide**\n\nUtilise le format hexadécimal : `#RRGGBB` (ex: `#5865F2` pour bleu Discord).', flags: MessageFlags.Ephemeral }).catch(() => { });
 				return true;
@@ -1730,7 +1722,7 @@ class PanelService {
 				await interaction.reply({ content: '❌ **Rôle invalide**\n\nCe rôle est introuvable ou n\'existe plus dans cette zone.', flags: MessageFlags.Ephemeral }).catch(() => { });
 				return true;
 			}
-			const normalizedColor = colorRaw ? this.#normalizeColor(colorRaw) : null;
+			const normalizedColor = colorRaw ? normalizeColor(colorRaw) : null;
 			if (colorRaw && !normalizedColor) {
 				await interaction.reply({ content: '❌ **Couleur invalide**\n\nUtilise le format hexadécimal : `#RRGGBB` (ex: `#5865F2` pour bleu Discord).', flags: MessageFlags.Ephemeral }).catch(() => { });
 				return true;
@@ -1854,18 +1846,6 @@ class PanelService {
 		return true;
 	}
 
-        async #columnExists(table, column) {
-                const [rows] = await this.db.query(
-                        `SELECT COUNT(*) AS n
-                         FROM information_schema.COLUMNS
-                         WHERE TABLE_SCHEMA = DATABASE()
-                           AND TABLE_NAME = ?
-                           AND COLUMN_NAME = ?`,
-                        [table, column]
-                );
-                return Number(rows?.[0]?.n || 0) > 0;
-        }
-
         async #ensureSchema() {
                 if (this.#schemaReady) return;
                 await this.db.query(`CREATE TABLE IF NOT EXISTS panel_messages (
@@ -1880,7 +1860,7 @@ class PanelService {
                         code_anchor_message_id VARCHAR(32) NULL,
                         FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
-                if (!(await this.#columnExists('panel_messages', 'refresh_msg_id'))) {
+                if (!(await columnExists(this.db, 'panel_messages', 'refresh_msg_id'))) {
                         await this.db
                                 .query('ALTER TABLE `panel_messages` ADD COLUMN refresh_msg_id VARCHAR(32) NULL AFTER zone_id')
                                 .catch(() => {

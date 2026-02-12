@@ -13,6 +13,7 @@ const {
 } = require('discord.js');
 const { applyZoneOverwrites } = require('../utils/permissions');
 const { validateZoneName, validateZoneDescription, sanitizeName } = require('../utils/validation');
+const { normalizeColor, columnExists } = require('../utils/serviceHelpers');
 
 const POLICY_VALUES = new Set(['open', 'ask', 'closed']);
 const ASK_MODES = new Set(['request', 'invite', 'both']);
@@ -27,18 +28,6 @@ class PolicyService {
                 this.logger = logger;
                 this.panelService = panelService;
                 this.services = null;
-        }
-
-        async #columnExists(table, column) {
-                const [rows] = await this.db.query(
-                        `SELECT COUNT(*) AS n
-                         FROM information_schema.COLUMNS
-                         WHERE TABLE_SCHEMA = DATABASE()
-                           AND TABLE_NAME = ?
-                           AND COLUMN_NAME = ?`,
-                        [table, column]
-                );
-                return Number(rows?.[0]?.n || 0) > 0;
         }
 
         setPanelService(panelService) {
@@ -980,7 +969,7 @@ class PolicyService {
                 const desc = (data.profile_desc || '').trim();
                 updates.profile_desc = desc ? desc.slice(0, 1000) : null;
 
-                const color = this.#normalizeColor(data.profile_color);
+                const color = normalizeColor(data.profile_color);
                 if (data.profile_color && !color) {
                                 throw new Error('Couleur invalide. Utilise un format #RRGGBB.');
                 }
@@ -1147,7 +1136,7 @@ class PolicyService {
                 const zone = await this.#getZone(zoneId);
                 if (!zone) throw new Error('Zone introuvable');
                 if (zone.policy !== 'ask' || !['invite', 'both'].includes(zone.ask_join_mode || 'invite')) {
-                        throw new Error('Cette zone ne permet pas les codes d’invitation.');
+                        throw new Error('Cette zone ne permet pas les codes d\'invitation.');
                 }
 
                 const maxAttempts = 5;
@@ -1187,7 +1176,7 @@ class PolicyService {
                 if (!zone) throw new Error('Zone introuvable.');
 
                 if (zone.policy !== 'ask' || !['invite', 'both'].includes(zone.ask_join_mode || 'invite')) {
-                        throw new Error('Cette zone n’accepte plus les codes.');
+                        throw new Error('Cette zone n\'accepte plus les codes.');
                 }
 
                 if (entry.expires_at && new Date(entry.expires_at) < new Date()) {
@@ -1278,7 +1267,7 @@ class PolicyService {
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
 
                 const addColumnIfMissing = async (table, column, ddl) => {
-                        const exists = await this.#columnExists(table, column);
+                        const exists = await columnExists(this.db, table, column);
                         if (!exists) {
                                 await this.db.query(`ALTER TABLE \`${table}\` ADD COLUMN ${ddl}`);
                         }
@@ -1792,15 +1781,6 @@ class PolicyService {
                 return modal;
         }
 
-        #normalizeColor(value) {
-                if (!value) return null;
-                let hex = String(value).trim();
-                if (!hex.length) return null;
-                if (!hex.startsWith('#')) hex = `#${hex}`;
-                if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return null;
-                return hex.toUpperCase();
-        }
-
         #sanitizeTags(raw) {
                 if (!raw) return [];
                 let source = raw;
@@ -1846,7 +1826,7 @@ class PolicyService {
                                 type: ChannelType.GuildText,
                                 parent: zone.category_id,
                                 reason: 'Zone join requests (owner)',
-                                topic: 'Salon privé pour examiner les demandes d’entrée.'
+                                topic: 'Salon privé pour examiner les demandes d\'entrée.'
                         });
 
                         await this.#applyInterviewPermissions(zone, channel);

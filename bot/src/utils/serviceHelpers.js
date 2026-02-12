@@ -6,10 +6,10 @@
  * @returns {string|null} Normalized color or null if invalid
  */
 function normalizeColor(input) {
-	if (!input || typeof input !== 'string') return null;
-	let hex = input.replace(/^#/, '').trim();
-	if (!/^[0-9a-fA-F]{6}$/.test(hex)) return null;
-	return `#${hex.toUpperCase()}`;
+	if (!input) return null;
+	const trimmed = String(input).trim().replace(/^#/, '');
+	if (!/^[0-9a-fA-F]{6}$/.test(trimmed)) return null;
+	return `#${trimmed.toUpperCase()}`;
 }
 
 /**
@@ -21,53 +21,82 @@ function normalizeColor(input) {
  */
 async function columnExists(db, table, column) {
 	const [rows] = await db.query(
-		'SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ? LIMIT 1',
+		`SELECT COUNT(*) AS n
+		 FROM information_schema.COLUMNS
+		 WHERE TABLE_SCHEMA = DATABASE()
+		   AND TABLE_NAME = ?
+		   AND COLUMN_NAME = ?`,
 		[table, column]
 	);
-	return rows.length > 0;
+	return Number(rows?.[0]?.n || 0) > 0;
 }
 
 /**
- * Parse a comma-separated participant string into min/max integers.
- * @param {string} value - e.g. "2,10" or "5"
+ * Parse a participant string into min/max integers.
+ * Supports formats: "min=X max=Y", "X/Y", or a single number (treated as max).
+ * @param {string} raw - Participant string
  * @returns {{ min: number|null, max: number|null }}
  */
-function parseParticipants(value) {
-	if (!value || typeof value !== 'string') return { min: null, max: null };
-	const parts = value.split(',').map(s => s.trim());
-	const min = parts[0] ? parseInt(parts[0], 10) : null;
-	const max = parts[1] ? parseInt(parts[1], 10) : null;
+function parseParticipants(raw) {
+	const value = String(raw || '').trim();
+	if (!value) return { min: null, max: null };
+
+	let min = null;
+	let max = null;
+
+	const minMatch = value.match(/min\s*=\s*(\d+)/i);
+	const maxMatch = value.match(/max\s*=\s*(\d+)/i);
+	if (minMatch) min = Number(minMatch[1]);
+	if (maxMatch) max = Number(maxMatch[1]);
+
+	if (!minMatch && !maxMatch) {
+		const pairMatch = value.match(/(\d+)\s*\/\s*(\d+)/);
+		if (pairMatch) {
+			min = Number(pairMatch[1]);
+			max = Number(pairMatch[2]);
+		} else if (/^\d+$/.test(value)) {
+			max = Number(value);
+		}
+	}
+
+	if (min && max && min > max) {
+		[min, max] = [max, min];
+	}
+
 	return {
-		min: Number.isFinite(min) ? min : null,
-		max: Number.isFinite(max) ? max : null
+		min: Number.isFinite(min) && min > 0 ? min : null,
+		max: Number.isFinite(max) && max > 0 ? max : null
 	};
 }
 
 /**
- * Format min/max participants into a display string.
- * @param {number|null} min
- * @param {number|null} max
+ * Format min/max participants from a record into a display string.
+ * @param {{ min_participants?: number, max_participants?: number }|null} existing - Record with participant fields
  * @returns {string}
  */
-function formatParticipants(min, max) {
-	if (min && max) return `${min} - ${max}`;
-	if (min) return `Min: ${min}`;
-	if (max) return `Max: ${max}`;
-	return 'Illimité';
+function formatParticipants(existing) {
+	if (!existing) return '';
+	const min = existing.min_participants ? Number(existing.min_participants) : null;
+	const max = existing.max_participants ? Number(existing.max_participants) : null;
+	if (!min && !max) return '';
+	if (min && max) return `min=${min} max=${max}`;
+	if (min) return `min=${min}`;
+	return `max=${max}`;
 }
 
 /**
  * Extract the first image attachment from a Discord message.
+ * Returns the raw attachment object for maximum flexibility.
  * @param {import('discord.js').Message} message
- * @returns {{ url: string, name: string }|null}
+ * @returns {import('discord.js').Attachment|null}
  */
 function extractImageAttachment(message) {
-	if (!message?.attachments?.size) return null;
-	const img = [...message.attachments.values()].find(a =>
-		a.contentType?.startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(a.name || '')
-	);
-	if (!img) return null;
-	return { url: img.url, name: img.name || 'image.png' };
+	const attachments = message?.attachments ? [...message.attachments.values()] : [];
+	for (const attachment of attachments) {
+		if (attachment?.contentType?.startsWith?.('image/')) return attachment;
+		if (attachment?.url && /\.(png|jpe?g|gif|webp)$/i.test(attachment.url)) return attachment;
+	}
+	return null;
 }
 
 /**

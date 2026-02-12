@@ -12,6 +12,7 @@ const {
 	TextInputStyle
 } = require('discord.js');
 const { shortId } = require('../utils/ids');
+const { normalizeColor, parseParticipants, formatParticipants, extractImageAttachment } = require('../utils/serviceHelpers');
 
 const DEFAULT_COLOR = 0x5865f2;
 const HUB_CATEGORY_NAMES = ['hub', 'onboarding'];
@@ -462,7 +463,7 @@ class HubService {
 			return false;
 		}
 
-		const attachment = this.#extractImageAttachment(message);
+		const attachment = extractImageAttachment(message);
 		if (!attachment) {
 			await message.reply('❌ **Fichier non valide**\n\nMerci d\'envoyer une **image** (formats acceptés : PNG, JPG, GIF, WEBP).').catch((err) => {
 				if (err?.code === 10008) return; // Unknown message
@@ -516,7 +517,7 @@ class HubService {
 			const tagValue = this.#validateTags(tagRaw);
 			const imageRaw = interaction.fields.getTextInputValue('announceImage')?.trim() || '';
 
-			const embedColor = colorRaw ? this.#normalizeColor(colorRaw) : null;
+			const embedColor = colorRaw ? normalizeColor(colorRaw) : null;
 			if (colorRaw && !embedColor) {
 				await this.#reply(interaction, {
 					content: '❌ **Couleur invalide**\n\n' +
@@ -634,7 +635,7 @@ class HubService {
 			const game = gameRaw ? String(gameRaw).trim().slice(0, 120) : null;
 			const imageRaw = options.image || options.img || '';
 
-			const embedColor = colorRaw ? this.#normalizeColor(colorRaw) : null;
+			const embedColor = colorRaw ? normalizeColor(colorRaw) : null;
 			if (colorRaw && !embedColor) {
 				await this.#reply(interaction, {
 					content: '❌ **Couleur invalide**\n\n' +
@@ -660,7 +661,7 @@ class HubService {
 				pendingImage = true;
 			}
 
-			const participantLimits = this.#parseParticipants(participantsRaw);
+			const participantLimits = parseParticipants(participantsRaw);
 
 			const payload = {
 				guild_id: interaction.guildId,
@@ -759,7 +760,7 @@ class HubService {
 				const tagValue = this.#validateTags(tagRaw);
 				const imageRaw = interaction.fields.getTextInputValue('announceImage')?.trim() || '';
 
-				const embedColor = colorRaw ? this.#normalizeColor(colorRaw) : null;
+				const embedColor = colorRaw ? normalizeColor(colorRaw) : null;
 				if (colorRaw && !embedColor) {
 					await this.#reply(interaction, { content: 'Couleur invalide.', flags: MessageFlags.Ephemeral });
 					return;
@@ -801,7 +802,7 @@ class HubService {
 				const game = gameRaw ? String(gameRaw).trim().slice(0, 120) : null;
 				const imageRaw = options.image || options.img || '';
 
-				const embedColor = colorRaw ? this.#normalizeColor(colorRaw) : null;
+				const embedColor = colorRaw ? normalizeColor(colorRaw) : null;
 				if (colorRaw && !embedColor) {
 					await this.#reply(interaction, { content: 'Couleur invalide.', flags: MessageFlags.Ephemeral });
 					return;
@@ -817,7 +818,7 @@ class HubService {
 					embedImage = imageUrl;
 				}
 
-				const participantLimits = this.#parseParticipants(participantsRaw);
+				const participantLimits = parseParticipants(participantsRaw);
 
 				await this.#updateRequest(request.id, {
 					embed_title: name,
@@ -1351,7 +1352,7 @@ class HubService {
 			.setRequired(false)
 			.setMaxLength(64)
 			.setPlaceholder('min=4 max=10 (ou juste max=10)')
-			.setValue(this.#formatParticipants(existing));
+			.setValue(formatParticipants(existing));
 
 		const optionsInput = new TextInputBuilder()
 			.setCustomId('eventOptions')
@@ -1489,16 +1490,6 @@ class HubService {
 		return { embeds, content: null };
 	}
 
-	#formatParticipants(existing) {
-		if (!existing) return '';
-		const min = existing.min_participants ? Number(existing.min_participants) : null;
-		const max = existing.max_participants ? Number(existing.max_participants) : null;
-		if (!min && !max) return '';
-		if (min && max) return `min=${min} max=${max}`;
-		if (min) return `min=${min}`;
-		return `max=${max}`;
-	}
-
 	#formatEventOptions(existing) {
 		if (!existing) return '';
 		const lines = [];
@@ -1508,38 +1499,6 @@ class HubService {
 		if (existing.game) lines.push(`jeu=${String(existing.game).slice(0, 120)}`);
 		if (existing.embed_image) lines.push(`image=${String(existing.embed_image).slice(0, 500)}`);
 		return lines.join('\n');
-	}
-
-	#parseParticipants(raw) {
-		const value = String(raw || '').trim();
-		if (!value) return { min: null, max: null };
-
-		let min = null;
-		let max = null;
-
-		const minMatch = value.match(/min\s*=\s*(\d+)/i);
-		const maxMatch = value.match(/max\s*=\s*(\d+)/i);
-		if (minMatch) min = Number(minMatch[1]);
-		if (maxMatch) max = Number(maxMatch[1]);
-
-		if (!minMatch && !maxMatch) {
-			const pairMatch = value.match(/(\d+)\s*\/\s*(\d+)/);
-			if (pairMatch) {
-				min = Number(pairMatch[1]);
-				max = Number(pairMatch[2]);
-			} else if (/^\d+$/.test(value)) {
-				max = Number(value);
-			}
-		}
-
-		if (min && max && min > max) {
-			[min, max] = [max, min];
-		}
-
-		return {
-			min: Number.isFinite(min) && min > 0 ? min : null,
-			max: Number.isFinite(max) && max > 0 ? max : null
-		};
 	}
 
 	#parseOptions(raw) {
@@ -1558,16 +1517,9 @@ class HubService {
 		return result;
 	}
 
-	#normalizeColor(value) {
-		if (!value) return null;
-		const trimmed = String(value).trim().replace(/^#/, '');
-		if (!/^[0-9a-fA-F]{6}$/.test(trimmed)) return null;
-		return `#${trimmed.toUpperCase()}`;
-	}
-
 	#resolveColor(value) {
 		if (!value) return null;
-		const normalized = this.#normalizeColor(value);
+		const normalized = normalizeColor(value);
 		if (!normalized) return null;
 		return parseInt(normalized.slice(1), 16);
 	}
@@ -1678,15 +1630,6 @@ class HubService {
 	#mergePreviewContent(prefix, content) {
 		const base = content ? `${prefix}\n\n${content}` : prefix;
 		return base.length > 2000 ? `${base.slice(0, 1997)}...` : base;
-	}
-
-	#extractImageAttachment(message) {
-		const attachments = message?.attachments?.values ? [...message.attachments.values()] : [];
-		for (const attachment of attachments) {
-			if (attachment?.contentType?.startsWith?.('image/')) return attachment;
-			if (attachment?.url && /\.(png|jpe?g|gif|webp)$/i.test(attachment.url)) return attachment;
-		}
-		return null;
 	}
 
 	#setPendingImage({ guildId, userId, channelId, recordId }) {

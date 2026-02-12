@@ -89,7 +89,7 @@ function buildLegacySlashCommand(commandName, bucket) {
                         if (mod.globalOwnerOnly || mod.ownerOnly) {
                                 if (!ownerId || interaction.user.id !== String(ownerId)) {
                                         return interaction.reply({
-                                                content: 'Commande réservée à l’Owner.',
+                                                content: 'Commande réservée à l\'Owner.',
                                                 ephemeral: true
                                         });
                                 }

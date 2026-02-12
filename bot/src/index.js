@@ -70,32 +70,32 @@ const client = new Client({
 
 		// Services
 		const ownerId = process.env.OWNER_ID || process.env.OWNER_USER_ID;
-                const zoneService = new ZoneService(client, pool, ownerId, logger);
-                const policyService = new PolicyService(client, pool, logger);
-                const services = {
-                        zone: zoneService,
-                        policy: policyService,
-                        activity: new ActivityService(client, pool),
-                        anon: new AnonService(client, pool, logger),
-                        event: new EventService(client, pool, logger),
-                        tempGroup: new TempGroupService(client, pool, logger)
-                };
-                services.panel = new PanelService(client, pool, logger);
-                services.staffPanel = new StaffPanelService(client, pool, logger, services);
-                services.throttle = new ThrottleService();
-                services.hub = new HubService(client, pool, logger, services);
-                zoneService.setPanelService(services.panel);
-                policyService.setPanelService(services.panel);
-                policyService.setServices(services);
-                services.welcome = new WelcomeService(client, pool, logger, services);
-                services.hub.setServices(services);
+		const zoneService = new ZoneService(client, pool, ownerId, logger);
+		const policyService = new PolicyService(client, pool, logger);
+		const services = {
+			zone: zoneService,
+			policy: policyService,
+			activity: new ActivityService(client, pool),
+			anon: new AnonService(client, pool, logger),
+			event: new EventService(client, pool, logger),
+			tempGroup: new TempGroupService(client, pool, logger)
+		};
+		services.panel = new PanelService(client, pool, logger);
+		services.staffPanel = new StaffPanelService(client, pool, logger, services);
+		services.throttle = new ThrottleService();
+		services.hub = new HubService(client, pool, logger, services);
+		zoneService.setPanelService(services.panel);
+		policyService.setPanelService(services.panel);
+		policyService.setServices(services);
+		services.welcome = new WelcomeService(client, pool, logger, services);
+		services.hub.setServices(services);
 
 		client.context = {
 			logger,
 			pool,
-                        services,
-                        config: { ownerUserId: ownerId, modRoleId: process.env.MOD_ROLE_ID }
-                };
+			services,
+			config: { ownerUserId: ownerId, modRoleId: process.env.MOD_ROLE_ID }
+		};
 
 		if (!process.env.DISCORD_TOKEN) {
 			logger.error('Missing DISCORD_TOKEN in environment');
@@ -111,21 +111,21 @@ const client = new Client({
 })();
 
 process.on('SIGINT', async () => {
-  logger.info('Arrêt demandé (Ctrl+C)');
-  if (client.context.scheduler) {
-    await client.context.scheduler.shutdown();
-  }
-  client.destroy();
-  process.exit(0);
+	logger.info('Shutdown requested (SIGINT)');
+	if (client.context.scheduler) {
+		await client.context.scheduler.shutdown();
+	}
+	client.destroy();
+	process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
-  logger.info('Arrêt demandé (SIGTERM)');
-  if (client.context.scheduler) {
-    await client.context.scheduler.shutdown();
-  }
-  client.destroy();
-  process.exit(0);
+	logger.info('Shutdown requested (SIGTERM)');
+	if (client.context.scheduler) {
+		await client.context.scheduler.shutdown();
+	}
+	client.destroy();
+	process.exit(0);
 });
 
 process.on('unhandledRejection', (error) => {
