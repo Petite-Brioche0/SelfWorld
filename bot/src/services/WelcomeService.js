@@ -437,12 +437,6 @@ class WelcomeService {
                 }
         }
 
-        #buildZoneDetailsEmbed(zone, activity, memberCount) {
-                const embed = this.#buildZoneEmbed(zone, activity, memberCount);
-                embed.setDescription(this.#truncate(zone.profile_desc || 'Pas encore de description.', 1000));
-                embed.addFields({ name: 'Politique', value: zone.policy === 'open' ? 'Ouverte' : 'Sur demande', inline: true });
-                return embed;
-        }
 
         async #fetchActivitySummary(zoneId) {
                 try {
@@ -522,7 +516,7 @@ class WelcomeService {
                 }
         }
 
-        async closeOnboardingChannelForUser(guildId, userId) {
+        async closeOnboardingChannelForUser(_guildId, _userId) {
                 return;
         }
 

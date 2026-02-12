@@ -33,7 +33,7 @@ class ZoneService {
         }
 
         #slugify(name) {
-                return String(name).toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9\-]/g, '').slice(0, 32);
+                return String(name).toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 32);
         }
 
         async #getZone(zoneId) {
@@ -785,15 +785,11 @@ class ZoneService {
         }
 
         async #warmReceptionCache() {
-                try {
-                        const [rows] = await this.db.query(
-                                'SELECT text_reception_id FROM zones WHERE text_reception_id IS NOT NULL'
-                        );
-                        for (const entry of rows || []) {
-                                this.#indexReception(entry.text_reception_id);
-                        }
-                } catch (err) {
-                        throw err;
+                const [rows] = await this.db.query(
+                        'SELECT text_reception_id FROM zones WHERE text_reception_id IS NOT NULL'
+                );
+                for (const entry of rows || []) {
+                        this.#indexReception(entry.text_reception_id);
                 }
         }
 

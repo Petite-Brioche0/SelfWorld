@@ -296,6 +296,7 @@ class PolicyService {
                                         if (err?.code === 10062 || err?.rawError?.code === 10062) return;
                                         this.logger?.warn({ err, userId: interaction.user.id }, 'Failed to send creation error reply');
                                 });
+                }
 
                 return true;
         }
@@ -566,7 +567,7 @@ class PolicyService {
         }
 
         async handlePolicySelect(interaction) {
-                const [_, __, action, zoneIdRaw] = interaction.customId.split(':');
+                const [, , action, zoneIdRaw] = interaction.customId.split(':');
                 if (action !== 'set') return false;
                 const zoneId = Number(zoneIdRaw);
                 if (!zoneId || !interaction.values?.length) {
@@ -1141,7 +1142,7 @@ class PolicyService {
                 return message;
         }
 
-        async createInviteCode(zoneId, actorId, options = {}) {
+        async createInviteCode(zoneId, actorId, _options = {}) {
                 await this.#ensureSchema();
                 const zone = await this.#getZone(zoneId);
                 if (!zone) throw new Error('Zone introuvable');
@@ -1368,7 +1369,7 @@ class PolicyService {
                 const zone = { ...row };
                 if (zone.profile_tags) {
                         if (Array.isArray(zone.profile_tags)) {
-                                zone.profile_tags = zone.profile_tags;
+                                // already an array, no-op
                         } else if (typeof zone.profile_tags === 'string') {
                                 try {
                                         zone.profile_tags = JSON.parse(zone.profile_tags);
@@ -1980,12 +1981,12 @@ class PolicyService {
                 return fresh?.[0] || null;
         }
 
-        async #syncInviteAnchors(zone) {
+        async #syncInviteAnchors(zone) { // eslint-disable-line no-unused-private-class-members
                 if (!zone?.id) return;
                 await this.#cleanupCodeAnchor(zone);
         }
 
-        async #ensureCodeAnchor(zone) {
+        async #ensureCodeAnchor(zone) { // eslint-disable-line no-unused-private-class-members
                 const record = await this.#ensurePanelRecord(zone.id);
                 const channel = await this.#resolveCodeChannel(zone);
                 if (!channel) return null;
@@ -2007,7 +2008,7 @@ class PolicyService {
                 );
 
                 const content = (zone.ask_approver_mode || 'owner') === 'owner'
-                        ? 'Clique pour générer un code d’invitation à partager au candidat.'
+                        ? 'Clique pour générer un code d\u2019invitation à partager au candidat.'
                         : 'Les membres peuvent générer un code temporaire et le transmettre en privé.';
 
                 if (message) {

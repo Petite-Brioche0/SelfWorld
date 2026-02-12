@@ -40,7 +40,7 @@ class TempGroupService {
                         archived BOOLEAN NOT NULL DEFAULT FALSE,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         expires_at DATETIME NOT NULL
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`).catch((err) => {
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`).catch((_err) => {
 			// Expected failure if table already exists - intentionally silent
 		});
 
@@ -50,7 +50,7 @@ class TempGroupService {
                         role ENUM('participant','spectator') NOT NULL DEFAULT 'participant',
                         PRIMARY KEY(temp_group_id, user_id),
                         FOREIGN KEY(temp_group_id) REFERENCES temp_groups(id) ON DELETE CASCADE
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`).catch((err) => {
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`).catch((_err) => {
 			// Expected failure if table already exists - intentionally silent
 		});
 
@@ -63,14 +63,14 @@ class TempGroupService {
                         UNIQUE KEY uniq_channel (channel_id),
                         INDEX ix_group (temp_group_id),
                         FOREIGN KEY(temp_group_id) REFERENCES temp_groups(id) ON DELETE CASCADE
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`).catch((err) => {
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`).catch((_err) => {
 			// Expected failure if table already exists - intentionally silent
 		});
 
 		const addColumnIfMissing = async (column, ddl) => {
 			const exists = await this.#columnExists('temp_groups', column);
 			if (!exists) {
-				await this.db.query(`ALTER TABLE temp_groups ADD COLUMN ${ddl}`).catch((err) => {
+				await this.db.query(`ALTER TABLE temp_groups ADD COLUMN ${ddl}`).catch((_err) => {
 					// Expected failure if column already exists - intentionally silent
 				});
 			}
@@ -90,7 +90,7 @@ class TempGroupService {
 		const addMemberColumnIfMissing = async (column, ddl) => {
 			const exists = await this.#columnExists('temp_group_members', column);
 			if (!exists) {
-				await this.db.query(`ALTER TABLE temp_group_members ADD COLUMN ${ddl}`).catch((err) => {
+				await this.db.query(`ALTER TABLE temp_group_members ADD COLUMN ${ddl}`).catch((_err) => {
 					// Expected failure if column already exists - intentionally silent
 				});
 			}
@@ -1308,87 +1308,6 @@ class TempGroupService {
 		if (Number.isNaN(date.getTime())) return 'n/a';
 		const unix = Math.floor(date.getTime() / 1000);
 		return `<t:${unix}:F>`;
-	}
-
-	#buildMembersModal(group) {
-		const modal = new ModalBuilder()
-			.setCustomId(`temp:members:modal:${group.id}`)
-			.setTitle('Gerer les membres');
-
-		const userInput = new TextInputBuilder()
-			.setCustomId('tempMemberUser')
-			.setLabel('Utilisateur (ID ou mention)')
-			.setStyle(TextInputStyle.Short)
-			.setRequired(true)
-			.setMaxLength(32)
-			.setPlaceholder('123456789012345678');
-
-		const roleInput = new TextInputBuilder()
-			.setCustomId('tempMemberRole')
-			.setLabel('Role (participant/spectateur)')
-			.setStyle(TextInputStyle.Short)
-			.setRequired(false)
-			.setMaxLength(32)
-			.setPlaceholder('participant');
-
-		const actionInput = new TextInputBuilder()
-			.setCustomId('tempMemberAction')
-			.setLabel('Action (ajouter/supprimer/basculer)')
-			.setStyle(TextInputStyle.Short)
-			.setRequired(false)
-			.setMaxLength(32)
-			.setPlaceholder('ajouter');
-
-		modal.addComponents(
-			new ActionRowBuilder().addComponents(userInput),
-			new ActionRowBuilder().addComponents(roleInput),
-			new ActionRowBuilder().addComponents(actionInput)
-		);
-
-		return modal;
-	}
-
-	async #buildChannelsModal(group) {
-		const modal = new ModalBuilder()
-			.setCustomId(`temp:channels:modal:${group.id}`)
-			.setTitle('Gerer les salons');
-
-		const textInput = new TextInputBuilder()
-			.setCustomId('tempChannelText')
-			.setLabel('Salon texte')
-			.setStyle(TextInputStyle.Short)
-			.setRequired(false)
-			.setMaxLength(100);
-
-		const voiceInput = new TextInputBuilder()
-			.setCustomId('tempChannelVoice')
-			.setLabel('Salon vocal')
-			.setStyle(TextInputStyle.Short)
-			.setRequired(false)
-			.setMaxLength(100);
-
-		const panelInput = new TextInputBuilder()
-			.setCustomId('tempChannelPanel')
-			.setLabel('Salon panel')
-			.setStyle(TextInputStyle.Short)
-			.setRequired(false)
-			.setMaxLength(100);
-
-		const textChannel = await this.#fetchChannel(group.text_channel_id);
-		const voiceChannel = await this.#fetchChannel(group.voice_channel_id);
-		const panelChannel = await this.#fetchChannel(group.panel_channel_id);
-
-		if (textChannel?.name) textInput.setValue(textChannel.name.slice(0, 100));
-		if (voiceChannel?.name) voiceInput.setValue(voiceChannel.name.slice(0, 100));
-		if (panelChannel?.name) panelInput.setValue(panelChannel.name.slice(0, 100));
-
-		modal.addComponents(
-			new ActionRowBuilder().addComponents(textInput),
-			new ActionRowBuilder().addComponents(voiceInput),
-			new ActionRowBuilder().addComponents(panelInput)
-		);
-
-		return modal;
 	}
 
 	#buildChannelCreateModal(group) {

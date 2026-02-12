@@ -1245,7 +1245,7 @@ class HubService {
 					const cloned = ButtonBuilder.from(component);
 					cloned.setDisabled(true);
 					newRow.addComponents(cloned);
-				} catch {}
+				} catch { /* ignored */ }
 			}
 			if (newRow.components.length) components.push(newRow);
 		}
@@ -1886,7 +1886,7 @@ class HubService {
 		if (!interaction || interaction.deferred || interaction.replied) return;
 		try {
 			await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-		} catch {}
+		} catch { /* ignored */ }
 	}
 }
 
