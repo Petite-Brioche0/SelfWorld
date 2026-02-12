@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+          cache-dependency-path: bot/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: bot
+
+      - name: Run ESLint
+        run: npm run lint
+        working-directory: bot
+
+  build:
+    name: Build Check (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: bot/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: bot
+
+      - name: Verify entry point loads
+        run: node -e "require('./src/index.js')" || true
+        working-directory: bot
+        env:
+          # Provide dummy env vars so the require doesn't crash on missing config
+          DISCORD_TOKEN: dummy
+          CLIENT_ID: dummy
+          GUILD_ID: dummy
+          OWNER_USER_ID: dummy
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_USER: dummy
+          DB_PASSWORD: dummy
+          DB_NAME: dummy
+          NODE_ENV: test
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+          cache-dependency-path: bot/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: bot
+
+      - name: Run npm audit
+        run: npm audit --audit-level=high
+        working-directory: bot

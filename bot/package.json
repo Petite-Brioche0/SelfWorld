@@ -9,6 +9,7 @@
 	},
 	"scripts": {
 		"dev": "node src/index.js",
+		"lint": "eslint src/",
 		"deploy:cmd": "node src/deploy-commands.js"
 	},
 	"dependencies": {

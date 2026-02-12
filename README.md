@@ -90,7 +90,7 @@
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/SelfWorld.git
+git clone https://github.com/Petite-Brioche0/SelfWorld.git
 cd SelfWorld/bot
 ```
 
@@ -371,6 +371,6 @@ For questions, issues, or feature requests:
 
 **Made with ❤️ for Discord communities**
 
-[Report Bug](https://github.com/yourusername/SelfWorld/issues) · [Request Feature](https://github.com/yourusername/SelfWorld/issues)
+[Report Bug](https://github.com/Petite-Brioche0/SelfWorld/issues) · [Request Feature](https://github.com/Petite-Brioche0/SelfWorld/issues)
 
 </div>
