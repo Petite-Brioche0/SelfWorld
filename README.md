@@ -2,7 +2,7 @@
 
 > A production-ready Discord bot for creating and managing private community zones with advanced privacy features, anonymous channels, and comprehensive activity tracking.
 
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org/)
 [![Discord.js](https://img.shields.io/badge/discord.js-v14-blue.svg)](https://discord.js.org/)
 [![MySQL](https://img.shields.io/badge/MySQL-8.0+-orange.svg)](https://www.mysql.com/)
 
@@ -18,12 +18,11 @@
 
 ### 🎭 **Anonymous Messaging**
 - Persistent anonymous identities per zone
-- Cross-zone anonymity with consistent usernames
 - Webhook-based message relaying
 - Comprehensive audit logging for moderation
 - Mention sanitization for security
 
-### 🎯 **Hub System**
+### 🎯 **Hub & Welcome System**
 - Personalized welcome channels for new members
 - Interactive panel-based navigation
 - Wizard-style onboarding experience
@@ -41,7 +40,6 @@
 - Rate limiting and spam protection
 - Graceful shutdown handling
 - Structured logging with Pino
-- Hot-reloadable commands and events
 - Owner-only administrative commands
 
 ---
@@ -56,12 +54,15 @@
 ┌─────────────▼───────────────────────────────────────────────┐
 │                    Event Handlers                           │
 │  • messageCreate  • interactionCreate  • guildMemberAdd     │
+│  • guildMemberRemove                                        │
 └─────────────┬───────────────────────────────────────────────┘
               │
 ┌─────────────▼───────────────────────────────────────────────┐
 │                    Service Layer                            │
-│  • ZoneService     • AnonService      • HubService          │
-│  • ActivityService • TempGroupService • EventService        │
+│  • ZoneService       • AnonService       • HubService       │
+│  • ActivityService   • TempGroupService  • EventService     │
+│  • PolicyService     • PanelService      • WelcomeService   │
+│  • StaffPanelService • ThrottleService                      │
 └─────────────┬───────────────────────────────────────────────┘
               │
 ┌─────────────▼───────────────────────────────────────────────┐
@@ -74,14 +75,15 @@
 
 ## 📋 Prerequisites
 
-- **Node.js** >= 18.0.0
+- **Node.js** >= 20.0.0
 - **MySQL** >= 8.0
 - **Discord Bot Token** with the following intents:
   - `GUILDS`
   - `GUILD_MEMBERS`
   - `GUILD_MESSAGES`
   - `MESSAGE_CONTENT`
-  - `GUILD_WEBHOOKS`
+  - `GUILD_VOICE_STATES`
+  - `GUILD_MESSAGE_REACTIONS`
 
 ---
 
@@ -102,7 +104,11 @@ npm install
 
 ### 3. Configure environment variables
 
-Create a `.env` file in the `bot/` directory:
+Copy the example file and fill in your values:
+
+```bash
+cp .env.example .env
+```
 
 ```env
 # Discord Configuration
@@ -111,7 +117,7 @@ CLIENT_ID=your_discord_client_id_here
 GUILD_ID=your_discord_guild_id_here
 
 # Owner Configuration
-OWNER_USER_ID=your_discord_user_id_here
+OWNER_ID=your_discord_user_id_here
 
 # Database Configuration
 DB_HOST=127.0.0.1
@@ -162,32 +168,45 @@ npm run dev
 bot/
 ├── src/
 │   ├── commands/          # Slash commands
-│   │   ├── admin/         # Owner-only commands
-│   │   ├── temp-group/    # Temporary group management
-│   │   └── zone/          # Zone management commands
+│   │   └── admin/         # Owner-only commands
+│   │       ├── zone.create.js
+│   │       ├── zone.delete.js
+│   │       ├── zones.list.js
+│   │       └── settings.anonlog.set.js
 │   ├── events/            # Discord event handlers
-│   │   ├── ready.js       # Bot initialization
+│   │   ├── ready.js
 │   │   ├── messageCreate.js
 │   │   ├── interactionCreate.js
-│   │   └── guildMemberAdd.js
+│   │   ├── guildMemberAdd.js
+│   │   └── guildMemberRemove.js
 │   ├── services/          # Business logic layer
 │   │   ├── ZoneService.js
 │   │   ├── AnonService.js
 │   │   ├── HubService.js
 │   │   ├── ActivityService.js
 │   │   ├── TempGroupService.js
-│   │   └── EventService.js
+│   │   ├── EventService.js
+│   │   ├── PolicyService.js
+│   │   ├── PanelService.js
+│   │   ├── StaffPanelService.js
+│   │   ├── WelcomeService.js
+│   │   └── ThrottleService.js
 │   ├── utils/             # Utility functions
 │   │   ├── TaskScheduler.js
 │   │   ├── ids.js
 │   │   ├── anonNames.js
-│   │   └── embedStyles.js
-│   ├── config/            # Configuration files
+│   │   ├── commandLoader.js
+│   │   ├── db.js
+│   │   ├── permissions.js
+│   │   └── validation.js
+│   ├── deploy-commands.js # Slash command registration
 │   └── index.js           # Entry point
 ├── schema.sql             # Database schema
 ├── package.json
 └── .env.example
 ```
+
+> **Note:** User-facing interactions (joining zones, browsing, invite codes, events, etc.) are handled through button/modal/select-menu interactions routed via `interactionCreate.js`, not through dedicated slash command files.
 
 ---
 
@@ -202,22 +221,6 @@ bot/
 | `/zones-list` | List all zones in the guild |
 | `/settings-anonlog-set` | Configure anonymous message logging |
 
-### Zone Commands
-
-| Command | Description |
-|---------|-------------|
-| `/zone-invite <code>` | Join a zone using an invite code |
-| `/zone-leave` | Leave the current zone |
-| `/zone-settings` | Configure zone settings |
-
-### Temporary Group Commands
-
-| Command | Description |
-|---------|-------------|
-| `/temp-group-create` | Create a temporary group in your zone |
-| `/temp-group-invite` | Invite member to temp group |
-| `/temp-group-leave` | Leave a temporary group |
-
 ---
 
 ## 🛠️ Services Overview
@@ -225,40 +228,35 @@ bot/
 ### ZoneService
 Manages zone lifecycle including creation, deletion, member management, and permissions. Handles automatic cleanup of orphaned resources and foreign key cascading.
 
-**Key Methods:**
-- `createZone(member, guildId, config)` - Creates a new zone with all channels and roles
-- `deleteZone(zoneId, guildId)` - Completely removes a zone and all associated data
-- `cleanupOrphans()` - Removes zones with missing Discord resources
-
 ### AnonService
 Provides anonymous messaging functionality with persistent identities per zone. Uses webhooks for message relaying and maintains comprehensive audit logs.
 
-**Key Methods:**
-- `handleMessage(message)` - Processes and relays anonymous messages
-- `getOrCreateAnonIdentity(userId, zoneId)` - Ensures consistent anonymous names
-
 ### HubService
-Creates personalized welcome channels for new members with interactive panels. Manages announcements, events, and scheduled tasks.
+Creates personalized welcome channels for new members with interactive panels. Manages hub requests for announcements and events.
 
-**Key Methods:**
-- `ensureHubChannelForMember(member)` - Creates hub channel for new members
-- `sendWizardToUser(channel, options)` - Sends interactive onboarding wizard
-- `scheduleAnnouncement(data)` - Schedules staff announcements
+### PolicyService
+Handles zone access policies (open/ask/closed), join requests, invite code generation, and zone creation request workflows.
+
+### PanelService
+Manages the admin panel channels within each zone, providing interactive controls for zone configuration, member management, and role assignment.
+
+### StaffPanelService
+Manages staff-level announcement and event scheduling panels with preview/approval workflows.
+
+### WelcomeService
+Handles the welcome flow for new members joining the server, including zone browsing and join-code redemption.
 
 ### ActivityService
 Tracks zone activity and sends alerts for low engagement. Uses a normalized scoring algorithm to compare activity against target metrics.
 
-**Key Methods:**
-- `trackActivity(zoneId, channelId)` - Records message activity
-- `getZoneActivityScore(zoneId, days)` - Calculates normalized activity score
-- `postLowActivityAlerts()` - Sends alerts for zones below 10% target activity
-
 ### TempGroupService
 Manages temporary groups within zones with automatic expiration. Creates isolated channel structures with custom permissions.
 
-**Key Methods:**
-- `createTempGroup(zoneId, member, config)` - Creates temporary group structure
-- `sweepExpired()` - Automatically removes expired groups
+### EventService
+Handles event lifecycle management including scheduling, participant tracking, and event-specific temporary groups.
+
+### ThrottleService
+In-memory rate limiting and cooldown system to prevent spam and abuse across all interaction types.
 
 ---
 
@@ -284,7 +282,9 @@ All tasks include:
 - **Rate Limiting**: Prevents spam and abuse with flexible rate limiters
 - **Permission Validation**: Strict permission checks on all commands
 - **Webhook Security**: Unique anonymous identities prevent cross-zone tracking
+- **SQL Injection Prevention**: Parameterized queries with column whitelisting
 - **Audit Logging**: Comprehensive logs for moderation and debugging
+- **Database Validation**: Connection health check at startup
 
 ---
 
@@ -294,13 +294,24 @@ The bot uses a normalized MySQL schema with proper foreign key constraints and c
 
 - **zones**: Core zone configuration and Discord resource IDs
 - **zone_members**: Zone membership tracking
+- **zone_member_roles**: Custom role assignments per zone member
 - **zone_roles**: Custom zone role definitions
-- **zone_channels**: Custom zone channels
+- **zone_invite_codes**: Invite code management
+- **zone_join_requests**: Join request tracking
+- **zone_creation_requests**: Zone creation request workflows
 - **temp_groups**: Temporary group structures
+- **temp_group_members**: Temporary group membership
+- **temp_group_channels**: Temporary group channels
+- **events**: Event definitions and scheduling
+- **event_participants**: Event participant tracking
 - **anon_channels**: Anonymous channel configuration
 - **anon_logs**: Anonymous message audit logs
 - **zone_activity**: Activity tracking data
+- **hub_channels**: Hub channel assignments per member
+- **hub_requests**: Hub request workflows
+- **staff_announcements**: Staff announcement scheduling
 - **panel_messages**: Interactive panel state
+- **panel_message_registry**: Panel message tracking
 - **settings**: Guild-level configuration
 
 ---
@@ -320,13 +331,15 @@ The task scheduler provides status information in logs:
 
 ### Verify database connections
 
-Check the logs at startup for database connection confirmation. The bot will log any connection errors with full details.
+The bot validates the database connection at startup and will exit with a clear error message if MySQL is unreachable.
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please follow these guidelines:
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+
+Quick start:
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)

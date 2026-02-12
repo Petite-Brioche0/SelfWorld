@@ -19,11 +19,6 @@ function buildSlug(input) {
         return slugify(cleaned, { lower: true, strict: true });
 }
 
-function pseudonym(userId, zoneId, salt) {
-        const hash = hashToBase64(`${userId}:${zoneId}:${salt}`);
-        return `Anonymous-${hash.substring(0, 8)}`;
-}
-
 function shortId(len = 7) {
         return crypto.randomBytes(Math.ceil(len / 2)).toString('hex').slice(0, len);
 }
@@ -33,6 +28,5 @@ module.exports = {
         randomCode,
         hashToBase64,
         buildSlug,
-        pseudonym,
         shortId
 };

@@ -3,10 +3,10 @@ const crypto = require('node:crypto');
 const adjectivesA = [
 	'adorable','agile','audacieux','brillant','chatoyant','fabuleux','lumineux','merveilleux','sublime','courageux',
 	'intrépide','rayonnant','formidable','fantastique','héroïque','incroyable','mythique','puissant','redoutable','sacré',
-	'magnifique','mystérieux','légendaire','élégant','prestigieux','radieux','grandiose','mythique','divin','serein',
+	'magnifique','mystérieux','légendaire','élégant','prestigieux','radieux','grandiose','divin','serein','glorieux',
 	'gros','petit','énorme','ridicule','moche','crade','sale','puant','maladif','tordu',
 	'stupide','idiot','débile','taré','cinglé','pervers','suspect','instable','hargneux','goujat',
-	'cruel','sanguinaire','dangereux','vicieux','pernicieux','sournois','pervers','venimeux','raté','désespéré',
+	'cruel','sanguinaire','dangereux','vicieux','pernicieux','sournois','venimeux','raté','désespéré','pitoyable',
 	'malchanceux','fainéant','bruyant','chiant','fourbe','roublard','mesquin','odieux','agressif','vicelard'
 ];
 
@@ -29,7 +29,7 @@ const adjectivesB = [
 	'stupide','bête','débile','idiot','abruti','maladroit','gros','lourd','fatigué','bourré',
 	'instable','taré','cinglé','dérangé','bizarre','louche','suspect','pervers','vicieux','moche',
 	'grognon','grincheux','colérique','paresseux','lent','chiant','agaçant','énervé','aigris','dépressif',
-	'violent','sanguinaire','psychopathe','démoniaque','pervers','hystérique','fou','zinzin','sombre','méchant'
+	'violent','sanguinaire','psychopathe','démoniaque','hystérique','fou','zinzin','sombre','méchant','torturé'
 ];
 
 function pick(array, index) {

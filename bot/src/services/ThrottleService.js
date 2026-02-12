@@ -40,9 +40,8 @@ class ThrottleService {
                         const lockExpiry = this.inflight.get(String(userId));
                         if (!lockExpiry || lockExpiry <= Date.now()) {
                                 this.inflight.delete(String(userId));
-                        } else {
-                                this.inflight.delete(String(userId));
                         }
+                        // If lock hasn't expired yet, keep it active until natural expiry
                 }
 
                 if (userId && actionKey) {

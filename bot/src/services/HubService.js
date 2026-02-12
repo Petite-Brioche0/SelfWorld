@@ -1746,12 +1746,20 @@ class HubService {
 
 	async #updateRequest(id, updates) {
 		if (!id) return;
+		const ALLOWED_COLUMNS = new Set([
+			'status', 'content', 'embed_title', 'embed_description', 'embed_color',
+			'embed_image', 'message_content', 'game', 'min_participants', 'max_participants',
+			'scheduled_at', 'preview_channel_id', 'preview_message_id', 'review_channel_id',
+			'review_message_id', 'decided_by', 'decided_at'
+		]);
 		const fields = [];
 		const values = [];
 		for (const [key, value] of Object.entries(updates || {})) {
-			fields.push(`${key} = ?`);
+			if (!ALLOWED_COLUMNS.has(key)) continue;
+			fields.push(`\`${key}\` = ?`);
 			values.push(value);
 		}
+		if (!fields.length) return;
 		fields.push('updated_at = NOW()');
 		values.push(id);
 		await this.db.query(`UPDATE hub_requests SET ${fields.join(', ')} WHERE id = ?`, values);

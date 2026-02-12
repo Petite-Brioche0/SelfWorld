@@ -18,7 +18,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           cache: 'npm'
           cache-dependency-path: bot/package-lock.json
 
@@ -36,7 +36,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [18, 20, 22]
+        node-version: [20, 22]
 
     steps:
       - name: Checkout code
@@ -53,15 +53,28 @@ jobs:
         run: npm ci
         working-directory: bot
 
-      - name: Verify entry point loads
-        run: node -e "require('./src/index.js')" || true
+      - name: Verify core modules load
+        run: |
+          node -e "
+            try {
+              require('./src/utils/db');
+              require('./src/utils/commandLoader');
+              require('./src/utils/ids');
+              require('./src/utils/anonNames');
+              require('./src/utils/validation');
+              require('./src/utils/TaskScheduler');
+              console.log('All core modules loaded successfully');
+            } catch(e) {
+              console.error('Module loading failed:', e);
+              process.exit(1);
+            }
+          "
         working-directory: bot
         env:
-          # Provide dummy env vars so the require doesn't crash on missing config
           DISCORD_TOKEN: dummy
           CLIENT_ID: dummy
           GUILD_ID: dummy
-          OWNER_USER_ID: dummy
+          OWNER_ID: dummy
           DB_HOST: 127.0.0.1
           DB_PORT: 3306
           DB_USER: dummy
@@ -80,7 +93,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           cache: 'npm'
           cache-dependency-path: bot/package-lock.json
 

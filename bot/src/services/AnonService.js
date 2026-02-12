@@ -149,11 +149,13 @@ class AnonService {
 	// Delete original
 	await message.delete().catch(()=>{});
 	
-	// Fan-out
+	// Relay only to the source zone's anon channel (not all zones)
 	const targets = await this.#allTargets();
-	
+
         for (const row of targets) {
         if (!row || !row.source_channel_id) continue;
+        // Only relay to the zone the message originated from
+        if (String(row.zone_id) !== String(zoneId)) continue;
         const hooked = await this.#ensureWebhook(row);
         if (!hooked || hooked._webhookDisabled) continue;
         if (!hooked.webhook_id || !hooked.webhook_token) continue;
@@ -161,14 +163,18 @@ class AnonService {
         const hook = new WebhookClient({ id: hooked.webhook_id, token: hooked.webhook_token });
         const name = this.#buildAnonName(message.author.id, row.zone_id);
 
+        try {
         await hook.send({
         username: name,
         content: sanitized.length ? sanitized : undefined,
         files,
         allowedMentions: { parse: [] }
-        }).catch((err) => {
-        this.logger?.warn?.({ err, zoneId: row.zone_id }, 'Failed to relay anonymous message');
         });
+        } catch (err) {
+        this.logger?.warn?.({ err, zoneId: row.zone_id }, 'Failed to relay anonymous message');
+        } finally {
+        hook.destroy();
+        }
         }
     }
 

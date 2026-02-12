@@ -58,9 +58,19 @@ const client = new Client({
 			}
 		}
 
-		// Services
+		// Validate database connection
 		const pool = db.getPool();
-                const zoneService = new ZoneService(client, pool, process.env.OWNER_ID, logger);
+		try {
+			await pool.query('SELECT 1');
+			logger.info('Database connection verified');
+		} catch (dbErr) {
+			logger.error({ err: dbErr }, 'Failed to connect to database');
+			process.exit(1);
+		}
+
+		// Services
+		const ownerId = process.env.OWNER_ID || process.env.OWNER_USER_ID;
+                const zoneService = new ZoneService(client, pool, ownerId, logger);
                 const policyService = new PolicyService(client, pool, logger);
                 const services = {
                         zone: zoneService,
@@ -84,7 +94,7 @@ const client = new Client({
 			logger,
 			pool,
                         services,
-                        config: { ownerUserId: process.env.OWNER_ID, modRoleId: process.env.MOD_ROLE_ID }
+                        config: { ownerUserId: ownerId, modRoleId: process.env.MOD_ROLE_ID }
                 };
 
 		if (!process.env.DISCORD_TOKEN) {

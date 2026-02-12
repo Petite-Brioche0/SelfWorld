@@ -9,7 +9,7 @@ assignees: ''
 ## Pre-flight Checklist
 
 - [ ] I have searched existing issues and this feature has not been requested yet
-- [ ] I have checked the [CHANGELOG.md](../../CHANGELOG.md) to confirm this isn't already planned
+- [ ] I have checked the [CHANGELOG.md](https://github.com/Petite-Brioche0/SelfWorld/blob/main/CHANGELOG.md) to confirm this isn't already planned
 
 ## Feature Description
 
@@ -39,9 +39,11 @@ Which part of the bot does this affect?
 
 - [ ] Zone management
 - [ ] Anonymous messaging
-- [ ] Hub system
+- [ ] Hub / Welcome system
 - [ ] Activity tracking
 - [ ] Temporary groups
+- [ ] Events system
+- [ ] Staff panel
 - [ ] Admin commands
 - [ ] Database/infrastructure
 - [ ] Other: ___

@@ -74,6 +74,57 @@ class ActivityService {
 			}
 		}
 	}
+
+	/**
+	 * Handle inactivity alert button interactions (zone:inactive:*)
+	 * @param {import('discord.js').ButtonInteraction} interaction
+	 * @param {Object} options
+	 * @param {Object} options.zoneService
+	 * @param {string} options.ownerUserId
+	 */
+	async handleInactivityButton(interaction, { zoneService, ownerUserId } = {}) {
+		const { MessageFlags, EmbedBuilder } = require('discord.js');
+		const customId = interaction.customId || '';
+		const parts = customId.split(':');
+		// Expected format: zone:inactive:<action>:<zoneId>
+		const action = parts[2];
+		const zoneId = parts[3];
+
+		if (!zoneId) {
+			await interaction.reply({ content: '❌ Zone introuvable.', flags: MessageFlags.Ephemeral });
+			return;
+		}
+
+		if (action === 'check') {
+			const score = await this.getZoneActivityScore(zoneId, 14);
+			const percentage = Math.round(score * 100);
+			const bar = this.buildProgressBar(score);
+			const embed = new EmbedBuilder()
+				.setColor(score < 0.1 ? 0xed4245 : score < 0.5 ? 0xfee75c : 0x57f287)
+				.setTitle('Activité de la zone')
+				.setDescription(`${bar} **${percentage}%** de l'objectif sur 14 jours`)
+				.setTimestamp();
+			await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+			return;
+		}
+
+		if (action === 'delete') {
+			if (!ownerUserId || interaction.user.id !== String(ownerUserId)) {
+				await interaction.reply({ content: '🔒 Seul le propriétaire du bot peut supprimer une zone.', flags: MessageFlags.Ephemeral });
+				return;
+			}
+			if (zoneService?.deleteZone) {
+				await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+				await zoneService.deleteZone(zoneId, interaction.guild.id);
+				await interaction.editReply({ content: `✅ Zone #${zoneId} supprimée.` });
+			} else {
+				await interaction.reply({ content: '❌ Service de zone indisponible.', flags: MessageFlags.Ephemeral });
+			}
+			return;
+		}
+
+		await interaction.reply({ content: '❌ Action inconnue.', flags: MessageFlags.Ephemeral });
+	}
 }
 
 module.exports = { ActivityService };

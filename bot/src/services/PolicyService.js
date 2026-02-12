@@ -2175,20 +2175,15 @@ class PolicyService {
         }
 
         async #dmUser(userId, payload) {
-                if (!payload) return;
-                const ownerId =
-                        this.client?.context?.config?.ownerUserId ||
-                        process.env.OWNER_ID ||
-                        process.env.OWNER_USER_ID;
-                if (!ownerId || !userId || String(ownerId) !== String(userId)) return;
+                if (!payload || !userId) return;
                 try {
                         const user = await this.client.users.fetch(userId);
                         await user.send(payload).catch((err) => {
-                                if (err?.code === 50007) return;
-                                this.logger?.debug({ err, userId }, 'Failed to DM owner');
+                                if (err?.code === 50007) return; // Cannot send DMs to this user
+                                this.logger?.debug({ err, userId }, 'Failed to DM user');
                         });
                 } catch (err) {
-                        this.logger?.debug({ err, userId }, 'Failed to fetch owner user for DM');
+                        this.logger?.debug({ err, userId }, 'Failed to fetch user for DM');
                 }
         }
 

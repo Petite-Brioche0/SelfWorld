@@ -88,10 +88,11 @@ class TaskScheduler {
 	 * @private
 	 */
 	#withTimeout(promise, timeoutMs, taskName) {
+		let timer;
 		return Promise.race([
-			promise,
+			promise.finally(() => clearTimeout(timer)),
 			new Promise((_, reject) => {
-				setTimeout(() => {
+				timer = setTimeout(() => {
 					reject(new Error(`Task "${taskName}" timed out after ${timeoutMs}ms`));
 				}, timeoutMs);
 			})
