@@ -1,0 +1,125 @@
+# ====================================
+# SelfWorld .gitignore
+# ====================================
+
+# ----------------
+# Environment Files
+# ----------------
+.env
+.env.local
+.env.development
+.env.production
+*.env
+
+# ----------------
+# Logs
+# ----------------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ----------------
+# Dependencies
+# ----------------
+node_modules/
+jspm_packages/
+.npm
+.yarn/
+.pnp.*
+
+# ----------------
+# Build Output
+# ----------------
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# ----------------
+# Cache & Temporary Files
+# ----------------
+.cache/
+.temp/
+*.tmp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ----------------
+# IDE & Editor Files
+# ----------------
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+.project
+.classpath
+.settings/
+
+# ----------------
+# OS Files
+# ----------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ----------------
+# Test Coverage
+# ----------------
+coverage/
+.nyc_output/
+*.lcov
+
+# ----------------
+# Database
+# ----------------
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# ----------------
+# Backup Files
+# ----------------
+*.bak
+*.backup
+*~
+
+# ----------------
+# Security & Sensitive Data
+# ----------------
+secrets/
+credentials/
+*.pem
+*.key
+*.cert
+config/local.js
+
+# ----------------
+# Misc
+# ----------------
+.eslintcache
+.yarn-integrity
+.npm-debug.log
+yarn.lock.cached
+package-lock.json.cached
+
+# ----------------
+# AI Assistant
+# ----------------
+.claude/
