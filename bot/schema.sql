@@ -30,6 +30,7 @@ zone_id BIGINT UNSIGNED NOT NULL,
 user_id VARCHAR(32) NOT NULL,
 role ENUM('owner','member') NOT NULL DEFAULT 'member',
 PRIMARY KEY(zone_id, user_id),
+INDEX ix_user (user_id),
 FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -38,6 +39,7 @@ zone_id BIGINT UNSIGNED NOT NULL,
 role_id VARCHAR(32) NOT NULL,
 user_id VARCHAR(32) NOT NULL,
 PRIMARY KEY(zone_id, role_id, user_id),
+INDEX ix_user (user_id),
 FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -100,7 +102,9 @@ created_by VARCHAR(32) NULL,
 event_id BIGINT UNSIGNED NULL,
 archived BOOLEAN NOT NULL DEFAULT FALSE,
 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-expires_at DATETIME NOT NULL
+expires_at DATETIME NOT NULL,
+INDEX ix_event (event_id),
+INDEX ix_guild (guild_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS temp_group_members (
@@ -139,7 +143,9 @@ temp_group_id BIGINT UNSIGNED NULL,
 status ENUM('draft','scheduled','running','ended') NOT NULL DEFAULT 'draft',
 scheduled_at DATETIME NULL,
 starts_at DATETIME NULL,
-ends_at DATETIME NULL
+ends_at DATETIME NULL,
+INDEX ix_temp_group (temp_group_id),
+INDEX ix_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS event_participants (
@@ -198,7 +204,9 @@ review_message_id VARCHAR(32) NULL,
 decided_by VARCHAR(32) NULL,
 decided_at DATETIME NULL,
 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-updated_at TIMESTAMP NULL
+updated_at TIMESTAMP NULL,
+INDEX ix_guild_user (guild_id, user_id),
+INDEX ix_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS staff_announcements (
@@ -308,5 +316,6 @@ decided_by VARCHAR(32) NULL,
 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 INDEX ix_guild (guild_id),
 INDEX ix_status (status),
+INDEX ix_user (user_id),
 FOREIGN KEY(zone_id) REFERENCES zones(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

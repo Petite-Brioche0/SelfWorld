@@ -15,6 +15,7 @@ const { normalizeColor, columnExists } = require('../utils/serviceHelpers');
 
 class PanelService {
 	#schemaReady = false;
+	#refreshLocks = new Map();
         constructor(client, db, logger = null, services = null) {
                 this.client = client;
                 this.db = db;
@@ -91,6 +92,16 @@ class PanelService {
         }
 
         async refresh(zoneId, sections = []) {
+                // Serialize per-zone to prevent duplicate panel messages from concurrent calls
+                const prev = this.#refreshLocks.get(zoneId) || Promise.resolve();
+                const next = prev.then(() => this.#refreshInner(zoneId, sections)).catch((err) => {
+                        this.logger?.warn({ err, zoneId }, 'Panel refresh failed');
+                });
+                this.#refreshLocks.set(zoneId, next);
+                return next;
+        }
+
+        async #refreshInner(zoneId, sections) {
                 await this.#ensureSchema();
                 const zoneRow = await this.#getZone(zoneId);
 		if (!zoneRow) throw new Error('zone not found');
@@ -913,7 +924,7 @@ class PanelService {
         async #addMemberRoleRecord(zoneRow, memberId, roleId) {
                 if (!zoneRow?.id || !memberId || !roleId) return;
                 await this.db.query(
-                        'INSERT INTO zone_member_roles (zone_id, role_id, user_id) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)',
+                        'INSERT INTO zone_member_roles (zone_id, role_id, user_id) VALUES (?, ?, ?) AS new ON DUPLICATE KEY UPDATE user_id = new.user_id',
                         [zoneRow.id, roleId, memberId]
                 );
         }
@@ -957,7 +968,7 @@ class PanelService {
 
                 if (hasOwnerRole) {
                         await this.db.query(
-                                'INSERT INTO zone_members (zone_id, user_id, role) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE role = VALUES(role)',
+                                'INSERT INTO zone_members (zone_id, user_id, role) VALUES (?, ?, ?) AS new ON DUPLICATE KEY UPDATE role = new.role',
                                 [zoneRow.id, memberId, 'owner']
                         );
                         return;
@@ -965,7 +976,7 @@ class PanelService {
 
                 if (hasMemberRole) {
                         await this.db.query(
-                                'INSERT INTO zone_members (zone_id, user_id, role) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE role = VALUES(role)',
+                                'INSERT INTO zone_members (zone_id, user_id, role) VALUES (?, ?, ?) AS new ON DUPLICATE KEY UPDATE role = new.role',
                                 [zoneRow.id, memberId, 'member']
                         );
                         return;
@@ -1162,10 +1173,10 @@ class PanelService {
                                 const toRemove = [...current].filter((id) => !desired.has(id));
 
                                 if (toAdd.length) {
-                                        await member.roles.add(toAdd).catch(() => { });
+                                        await member.roles.add(toAdd).catch((err) => { this.logger?.debug({ err }, 'Failed to update member roles'); });
                                 }
                                 if (toRemove.length) {
-                                        await member.roles.remove(toRemove).catch(() => { });
+                                        await member.roles.remove(toRemove).catch((err) => { this.logger?.debug({ err }, 'Failed to update member roles'); });
                                 }
 
                                 const refreshed = await guild.members.fetch(memberId).catch(() => null);
@@ -1417,10 +1428,10 @@ class PanelService {
                                                 if (zoneRow.role_owner_id) roleIds.add(zoneRow.role_owner_id);
                                                 const { customRoles } = await this.#collectZoneRoles(zoneRow);
                                                 for (const entry of customRoles) roleIds.add(entry.role.id);
-                                                await member.roles.remove([...roleIds]).catch(() => { });
+                                                await member.roles.remove([...roleIds]).catch((err) => { this.logger?.debug({ err }, 'Failed to update member roles'); });
                                         }
-                                        await this.#removeAllMemberRoleRecords(zoneRow, memberId).catch(() => { });
-                                        await this.db.query('DELETE FROM zone_members WHERE zone_id = ? AND user_id = ?', [zoneRow.id, memberId]).catch(() => { });
+                                        await this.#removeAllMemberRoleRecords(zoneRow, memberId).catch((err) => { this.logger?.debug({ err }, 'Failed to clean up records'); });
+                                        await this.db.query('DELETE FROM zone_members WHERE zone_id = ? AND user_id = ?', [zoneRow.id, memberId]).catch((err) => { this.logger?.debug({ err }, 'Failed to clean up records'); });
                                         const { embed, components } = await this.renderMembers(zoneRow);
                                         await interaction.editReply({ embeds: [embed], components }).catch(() => { });
                                 } catch (_err) {
@@ -1525,8 +1536,8 @@ class PanelService {
                                 try {
                                         const { guild } = await this.#collectZoneRoles(zoneRow);
                                         const role = await guild.roles.fetch(roleId).catch(() => null);
-                                        if (role) await role.delete(`Suppression via panneau de zone #${zoneRow.id}`).catch(() => { });
-                                        await this.#removeRoleAssignments(zoneRow, roleId).catch(() => { });
+                                        if (role) await role.delete(`Suppression via panneau de zone #${zoneRow.id}`).catch((err) => { this.logger?.debug({ err }, 'Failed to delete resource'); });
+                                        await this.#removeRoleAssignments(zoneRow, roleId).catch((err) => { this.logger?.debug({ err }, 'Failed to clean up records'); });
                                         await this.db.query('DELETE FROM zone_roles WHERE zone_id = ? AND role_id = ?', [zoneRow.id, roleId]);
                                         await this.refresh(zoneRow.id, ['roles']);
                                         await interaction.followUp({ content: '✅ **Rôle supprimé**\n\nLe rôle a été supprimé avec succès de cette zone.', flags: MessageFlags.Ephemeral }).catch(() => { });
@@ -1643,7 +1654,7 @@ class PanelService {
 				try {
 					const guild = await this.client.guilds.fetch(zoneRow.guild_id);
 					const channel = await guild.channels.fetch(entry.channel.id).catch(() => null);
-					if (channel) await channel.delete(`Suppression via panneau de zone #${zoneRow.id}`).catch(() => { });
+					if (channel) await channel.delete(`Suppression via panneau de zone #${zoneRow.id}`).catch((err) => { this.logger?.debug({ err }, 'Failed to delete resource'); });
 					await this.refresh(zoneRow.id, ['channels']);
 					await interaction.followUp({ content: '✅ **Salon supprimé**\n\nLe salon a été supprimé avec succès de cette zone.', flags: MessageFlags.Ephemeral }).catch(() => { });
 				} catch (_err) {
@@ -1703,7 +1714,7 @@ class PanelService {
 					reason: `Création via panneau de zone #${zoneRow.id}`
 				});
 				await this.db.query(
-					'INSERT INTO zone_roles (zone_id, role_id, name, color) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), color = VALUES(color)',
+					'INSERT INTO zone_roles (zone_id, role_id, name, color) VALUES (?, ?, ?, ?) AS new ON DUPLICATE KEY UPDATE name = new.name, color = new.color',
 					[zoneRow.id, role.id, safeName.slice(0, 64), color || null]
 				);
 				await interaction.editReply({ content: `✅ **Rôle créé**\n\nLe rôle <@&${role.id}> a été créé avec succès dans cette zone.` }).catch(() => { });
@@ -1744,7 +1755,7 @@ class PanelService {
 				}
 				await role.edit(payload).catch(() => { });
 				await this.db.query(
-					'INSERT INTO zone_roles (zone_id, role_id, name, color) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), color = VALUES(color)',
+					'INSERT INTO zone_roles (zone_id, role_id, name, color) VALUES (?, ?, ?, ?) AS new ON DUPLICATE KEY UPDATE name = new.name, color = new.color',
 					[zoneRow.id, role.id, safeName.slice(0, 64), colorRaw === '' ? null : normalizedColor]
 				);
 				await interaction.editReply({ content: '✅ **Rôle mis à jour**\n\nLes modifications du rôle ont été appliquées avec succès.' }).catch(() => { });
@@ -1914,7 +1925,7 @@ class PanelService {
                         return;
                 }
                 await this.db.query(
-                        'INSERT INTO panel_message_registry (zone_id, kind, message_id) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE message_id = VALUES(message_id)',
+                        'INSERT INTO panel_message_registry (zone_id, kind, message_id) VALUES (?, ?, ?) AS new ON DUPLICATE KEY UPDATE message_id = new.message_id',
                         [zoneId, kind, messageId]
                 );
         }

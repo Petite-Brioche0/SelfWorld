@@ -1208,8 +1208,8 @@ class StaffPanelService {
 		if (!eventId || !channelId || !messageId) return;
 		await this.db.query(
 			`INSERT INTO event_messages (event_id, channel_id, message_id)
-                         VALUES (?, ?, ?)
-                         ON DUPLICATE KEY UPDATE message_id = VALUES(message_id)`,
+                         VALUES (?, ?, ?) AS new
+                         ON DUPLICATE KEY UPDATE message_id = new.message_id`,
 			[eventId, channelId, messageId]
 		).catch((err) => {
 			this.logger?.warn({ err, eventId, channelId, messageId }, 'Failed to record event message');

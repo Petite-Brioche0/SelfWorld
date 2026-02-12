@@ -40,7 +40,7 @@ module.exports = {
 
                         if (panelService && Array.isArray(zoneRows) && zoneRows.length) {
                                 for (const row of zoneRows) {
-                                        await panelService.refresh(row.id, ['members']).catch(() => { });
+                                        await panelService.refresh(row.id, ['members']).catch((err) => { logger?.debug?.({ err, zoneId: row.id }, 'Failed to refresh panel on member leave'); });
                                 }
                         }
                 } catch (err) {

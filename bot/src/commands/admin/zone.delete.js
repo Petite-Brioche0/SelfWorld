@@ -72,7 +72,7 @@ module.exports = {
 			for (const row of zoneChannels) {
 				await safeDeleteChannel(await safeFetchChannel(interaction.client, row.channel_id));
 			}
-			await ctx.pool.query('DELETE FROM zone_channels WHERE zone_id=?', [zoneId]).catch(()=>{});
+			await ctx.pool.query('DELETE FROM zone_channels WHERE zone_id=?', [zoneId]).catch((err) => { ctx.logger?.debug({ err, zoneId }, 'zone_channels cleanup miss'); });
 
 			// Clean temp groups (delete Discord resources first, then DB records)
 			if (await columnExists(ctx.pool, 'temp_groups', 'zone_id')) {
@@ -89,50 +89,50 @@ module.exports = {
 					await safeDeleteChannel(await safeFetchChannel(interaction.client, tg.category_id));
 
 					// Delete temp_group_channels records
-					await ctx.pool.query('DELETE FROM temp_group_channels WHERE temp_group_id=?', [tg.id]).catch(()=>{});
+					await ctx.pool.query('DELETE FROM temp_group_channels WHERE temp_group_id=?', [tg.id]).catch((err) => { ctx.logger?.debug({ err, zoneId }, 'temp_group_channels cleanup miss'); });
 				}
 
 				// Delete temp group members and temp groups
-				await ctx.pool.query('DELETE FROM temp_group_members WHERE temp_group_id IN (SELECT id FROM temp_groups WHERE zone_id=?)', [zoneId]).catch(()=>{});
-				await ctx.pool.query('DELETE FROM temp_groups WHERE zone_id=?', [zoneId]).catch(()=>{});
+				await ctx.pool.query('DELETE FROM temp_group_members WHERE temp_group_id IN (SELECT id FROM temp_groups WHERE zone_id=?)', [zoneId]).catch((err) => { ctx.logger?.debug({ err, zoneId }, 'temp_group_members cleanup miss'); });
+				await ctx.pool.query('DELETE FROM temp_groups WHERE zone_id=?', [zoneId]).catch((err) => { ctx.logger?.debug({ err, zoneId }, 'temp_groups cleanup miss'); });
 			}
 
 			// Clean zone member roles (user-role assignments)
-			await ctx.pool.query('DELETE FROM zone_member_roles WHERE zone_id=?', [zoneId]).catch(()=>{});
+			await ctx.pool.query('DELETE FROM zone_member_roles WHERE zone_id=?', [zoneId]).catch((err) => { ctx.logger?.debug({ err, zoneId }, 'zone_member_roles cleanup miss'); });
 
 			// Clean zone members (zone membership records)
-			await ctx.pool.query('DELETE FROM zone_members WHERE zone_id=?', [zoneId]).catch(()=>{});
+			await ctx.pool.query('DELETE FROM zone_members WHERE zone_id=?', [zoneId]).catch((err) => { ctx.logger?.debug({ err, zoneId }, 'zone_members cleanup miss'); });
 
 			// Clean zone roles (custom zone roles)
-			await ctx.pool.query('DELETE FROM zone_roles WHERE zone_id=?', [zoneId]).catch(()=>{});
+			await ctx.pool.query('DELETE FROM zone_roles WHERE zone_id=?', [zoneId]).catch((err) => { ctx.logger?.debug({ err, zoneId }, 'zone_roles cleanup miss'); });
 
 			// Clean panel messages (panel UI metadata)
-			await ctx.pool.query('DELETE FROM panel_messages WHERE zone_id=?', [zoneId]).catch(()=>{});
+			await ctx.pool.query('DELETE FROM panel_messages WHERE zone_id=?', [zoneId]).catch((err) => { ctx.logger?.debug({ err, zoneId }, 'panel_messages cleanup miss'); });
 
 			// Clean panel message registry
-			await ctx.pool.query('DELETE FROM panel_message_registry WHERE zone_id=?', [zoneId]).catch(()=>{});
+			await ctx.pool.query('DELETE FROM panel_message_registry WHERE zone_id=?', [zoneId]).catch((err) => { ctx.logger?.debug({ err, zoneId }, 'panel_message_registry cleanup miss'); });
 
 			// Clean zone invite codes
-			await ctx.pool.query('DELETE FROM zone_invite_codes WHERE zone_id=?', [zoneId]).catch(()=>{});
+			await ctx.pool.query('DELETE FROM zone_invite_codes WHERE zone_id=?', [zoneId]).catch((err) => { ctx.logger?.debug({ err, zoneId }, 'zone_invite_codes cleanup miss'); });
 
 			// Clean zone join requests
-			await ctx.pool.query('DELETE FROM zone_join_requests WHERE zone_id=?', [zoneId]).catch(()=>{});
+			await ctx.pool.query('DELETE FROM zone_join_requests WHERE zone_id=?', [zoneId]).catch((err) => { ctx.logger?.debug({ err, zoneId }, 'zone_join_requests cleanup miss'); });
 
 			// Clean legacy join codes and join_requests (if they exist)
-			await ctx.pool.query('DELETE FROM join_codes WHERE zone_id=?', [zoneId]).catch(()=>{});
-			await ctx.pool.query('DELETE FROM join_requests WHERE zone_id=?', [zoneId]).catch(()=>{});
+			await ctx.pool.query('DELETE FROM join_codes WHERE zone_id=?', [zoneId]).catch((err) => { ctx.logger?.debug({ err, zoneId }, 'join_codes cleanup miss'); });
+			await ctx.pool.query('DELETE FROM join_requests WHERE zone_id=?', [zoneId]).catch((err) => { ctx.logger?.debug({ err, zoneId }, 'join_requests cleanup miss'); });
 
 			// Clean anon channels
-			await ctx.pool.query('DELETE FROM anon_channels WHERE zone_id=?', [zoneId]).catch(()=>{});
+			await ctx.pool.query('DELETE FROM anon_channels WHERE zone_id=?', [zoneId]).catch((err) => { ctx.logger?.debug({ err, zoneId }, 'anon_channels cleanup miss'); });
 
 			// Clean anon logs (uses source_zone_id, not zone_id!)
-			await ctx.pool.query('DELETE FROM anon_logs WHERE source_zone_id=?', [zoneId]).catch(()=>{});
+			await ctx.pool.query('DELETE FROM anon_logs WHERE source_zone_id=?', [zoneId]).catch((err) => { ctx.logger?.debug({ err, zoneId }, 'anon_logs cleanup miss'); });
 
 			// Clean zone activity
-			await ctx.pool.query('DELETE FROM zone_activity WHERE zone_id=?', [zoneId]).catch(()=>{});
+			await ctx.pool.query('DELETE FROM zone_activity WHERE zone_id=?', [zoneId]).catch((err) => { ctx.logger?.debug({ err, zoneId }, 'zone_activity cleanup miss'); });
 
 			// Clean event participants
-			await ctx.pool.query('DELETE FROM event_participants WHERE zone_id=?', [zoneId]).catch(()=>{});
+			await ctx.pool.query('DELETE FROM event_participants WHERE zone_id=?', [zoneId]).catch((err) => { ctx.logger?.debug({ err, zoneId }, 'event_participants cleanup miss'); });
 
 			// Finally, delete the zone itself
 			await ctx.pool.query('DELETE FROM zones WHERE id=?', [zoneId]);

@@ -669,7 +669,7 @@ class ZoneService {
                 });
 
                 await this.db.query(
-                        'INSERT INTO zone_roles (zone_id, role_id, name) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name)',
+                        'INSERT INTO zone_roles (zone_id, role_id, name) VALUES (?, ?, ?) AS new ON DUPLICATE KEY UPDATE name = new.name',
                         [zone.id, role.id, name.slice(0, 100)]
                 );
                 await this.#refreshPanel(zone.id, ['roles']);
@@ -718,7 +718,7 @@ class ZoneService {
                         this.logger?.warn({ err, userId, zoneId }, 'Failed to add zone member role');
                 });
                 await this.db.query(
-                        'INSERT INTO zone_members (zone_id, user_id, role) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE role = VALUES(role)',
+                        'INSERT INTO zone_members (zone_id, user_id, role) VALUES (?, ?, ?) AS new ON DUPLICATE KEY UPDATE role = new.role',
                         [zone.id, userId, 'member']
                 );
                 await this.#refreshPanel(zone.id, ['members']);

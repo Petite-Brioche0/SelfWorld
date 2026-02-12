@@ -141,13 +141,13 @@ class AnonService {
 				if (files.length) {
 					embed.addFields({ name: 'Pièces jointes', value: `${files.length}` });
 				}
-				await adminCh.send({ content: logContent, allowedMentions: { parse: [] } }).catch(() => {});
-				await adminCh.send({ embeds: [embed], files, allowedMentions: { parse: [] } }).catch(() => {});
+				await adminCh.send({ content: logContent, allowedMentions: { parse: [] } }).catch((err) => { this.logger?.debug?.({ err }, 'Failed to send anon admin log'); });
+				await adminCh.send({ embeds: [embed], files, allowedMentions: { parse: [] } }).catch((err) => { this.logger?.debug?.({ err }, 'Failed to send anon admin log'); });
 			}
 		}
 
 		// Delete original
-		await message.delete().catch(() => {});
+		await message.delete().catch((err) => { if (err?.code !== 10008) this.logger?.debug?.({ err }, 'Failed to delete original anon message'); });
 
 		// Relay only to the source zone's anon channel (not all zones)
 		const targets = await this.#allTargets();

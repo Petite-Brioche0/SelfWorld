@@ -41,6 +41,14 @@ const client = new Client({
 
 (async () => {
 	try {
+		// Validate required environment variables
+		const required = ['DISCORD_TOKEN', 'DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'];
+		const missing = required.filter((key) => !process.env[key]);
+		if (missing.length) {
+			logger.error({ missing }, 'Missing required environment variables');
+			process.exit(1);
+		}
+
 		// Load commands
 		const { commands, context } = await loadCommands(path.join(__dirname, 'commands'));
 		client.commands = new Collection(commands);
@@ -96,11 +104,6 @@ const client = new Client({
 			services,
 			config: { ownerUserId: ownerId, modRoleId: process.env.MOD_ROLE_ID }
 		};
-
-		if (!process.env.DISCORD_TOKEN) {
-			logger.error('Missing DISCORD_TOKEN in environment');
-			process.exit(1);
-		}
 
 		await client.login(process.env.DISCORD_TOKEN);
 		logger.info('Logging in to Discord...');

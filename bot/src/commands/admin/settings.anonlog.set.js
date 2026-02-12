@@ -1,5 +1,5 @@
-// TODO: Create a unified settings panel for: anon admin channel, requests channel, event admin channel, event admin message ID
-// TODO: Build a parameter command that shows a panel to configure all settings
+// Future: Unify all settings (anon, requests, events) into a single settings panel command
+// See: https://github.com/Petite-Brioche0/SelfWorld/issues (create issue for unified settings)
 
 // Sets the admin log channel for anonymous messages
 const { SlashCommandBuilder, ChannelType, MessageFlags, PermissionFlagsBits } = require('discord.js');
@@ -20,7 +20,7 @@ module.exports = {
 			}
 
 			await ctx.pool.query(
-				'INSERT INTO settings (guild_id, anon_admin_channel_id, created_at) VALUES (?, ?, NOW()) ON DUPLICATE KEY UPDATE anon_admin_channel_id = VALUES(anon_admin_channel_id)',
+				'INSERT INTO settings (guild_id, anon_admin_channel_id, created_at) VALUES (?, ?, NOW()) AS new ON DUPLICATE KEY UPDATE anon_admin_channel_id = new.anon_admin_channel_id',
 				[interaction.guild.id, ch.id]
 			);
 

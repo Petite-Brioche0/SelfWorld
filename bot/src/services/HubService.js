@@ -1652,10 +1652,10 @@ class HubService {
 	async #setHubRecord(guildId, userId, channelId, joinMessageId, requestMessageId) {
 		await this.db.query(
 			`INSERT INTO hub_channels (guild_id, user_id, channel_id, join_message_id, request_message_id)
-                         VALUES (?, ?, ?, ?, ?)
-                         ON DUPLICATE KEY UPDATE channel_id = VALUES(channel_id),
-                                 join_message_id = VALUES(join_message_id),
-                                 request_message_id = VALUES(request_message_id)`,
+                         VALUES (?, ?, ?, ?, ?) AS new
+                         ON DUPLICATE KEY UPDATE channel_id = new.channel_id,
+                                 join_message_id = new.join_message_id,
+                                 request_message_id = new.request_message_id`,
 			[guildId, userId, channelId, joinMessageId, requestMessageId]
 		);
 		return this.#getHubRecord(guildId, userId);

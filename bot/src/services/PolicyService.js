@@ -230,6 +230,17 @@ class PolicyService {
                                 errors.push('Nom indisponible : une zone existe déjà avec ce nom.');
                         }
 
+                        const [recentRows] = await this.db.query(
+                                "SELECT COUNT(*) AS n FROM zone_creation_requests WHERE user_id = ? AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)",
+                                [interaction.user.id]
+                        );
+                        if (Number(recentRows?.[0]?.n || 0) >= 5) {
+                                await interaction.editReply({
+                                        content: '⚠️ **Limite atteinte**\n\nTu as déjà soumis trop de demandes récemment. Réessaye dans quelques heures.'
+                                }).catch(() => {});
+                                return true;
+                        }
+
                         const extras = payload.extras || {};
                         if (typeof extras.needs === 'string') {
                                 extras.needs = extras.needs.trim().slice(0, 1000);
@@ -1721,7 +1732,7 @@ class PolicyService {
 
                 try {
                         await this.db.query(
-                                'INSERT INTO panel_messages (zone_id, policy_msg_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE policy_msg_id = VALUES(policy_msg_id)',
+                                'INSERT INTO panel_messages (zone_id, policy_msg_id) VALUES (?, ?) AS new ON DUPLICATE KEY UPDATE policy_msg_id = new.policy_msg_id',
                                 [zoneId, interaction.message.id]
                         );
                 } catch (err) {
@@ -2006,7 +2017,7 @@ class PolicyService {
                 }
 
                 await this.db.query(
-                        'INSERT INTO panel_messages (zone_id, code_anchor_channel_id, code_anchor_message_id) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE code_anchor_channel_id = VALUES(code_anchor_channel_id), code_anchor_message_id = VALUES(code_anchor_message_id)',
+                        'INSERT INTO panel_messages (zone_id, code_anchor_channel_id, code_anchor_message_id) VALUES (?, ?, ?) AS new ON DUPLICATE KEY UPDATE code_anchor_channel_id = new.code_anchor_channel_id, code_anchor_message_id = new.code_anchor_message_id',
                         [zone.id, message.channelId, message.id]
                 );
 
@@ -2133,7 +2144,7 @@ class PolicyService {
                                         });
                                 }
                                 await this.db.query(
-                                        'INSERT INTO zone_members (zone_id, user_id, role) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE role = VALUES(role)',
+                                        'INSERT INTO zone_members (zone_id, user_id, role) VALUES (?, ?, ?) AS new ON DUPLICATE KEY UPDATE role = new.role',
                                         [zone.id, userId, 'member']
                                 );
                                 added = true;

@@ -237,8 +237,8 @@ class EventService {
 		}
 		await this.#safeQuery(
 			`INSERT INTO event_participants (event_id, user_id, zone_id, role)
-                         VALUES (?, ?, ?, ?)
-                         ON DUPLICATE KEY UPDATE role = VALUES(role)`,
+                         VALUES (?, ?, ?, ?) AS new
+                         ON DUPLICATE KEY UPDATE role = new.role`,
 			[eventId, userId, zoneId, role]
 		);
 	}

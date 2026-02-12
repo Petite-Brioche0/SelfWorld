@@ -11,7 +11,9 @@ function getPool() {
 			password: process.env.DB_PASSWORD,
 			database: process.env.DB_NAME,
 			connectionLimit: 10,
-			decimalNumbers: true
+			decimalNumbers: true,
+			enableKeepAlive: true,
+			keepAliveInitialDelay: 30000
 		});
 	}
 	return pool;

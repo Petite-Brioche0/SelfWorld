@@ -225,8 +225,8 @@ class TempGroupService {
 
 		await this.#safeQuery(
 			`INSERT INTO temp_group_members (temp_group_id, user_id, role)
-                         VALUES (?, ?, ?)
-                         ON DUPLICATE KEY UPDATE role = VALUES(role)`,
+                         VALUES (?, ?, ?) AS new
+                         ON DUPLICATE KEY UPDATE role = new.role`,
 			[groupId, member.id, normalizedRole]
 		);
 
@@ -1179,8 +1179,8 @@ class TempGroupService {
 
 		await this.#safeQuery(
 			`INSERT INTO temp_group_channels (temp_group_id, channel_id, kind)
-                         VALUES (?, ?, ?)
-                         ON DUPLICATE KEY UPDATE kind = VALUES(kind)`,
+                         VALUES (?, ?, ?) AS new
+                         ON DUPLICATE KEY UPDATE kind = new.kind`,
 			[group.id, channel.id, kind]
 		);
 

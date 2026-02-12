@@ -21,7 +21,7 @@ class ActivityService {
 
         async addVoice(zoneId, minutes) {
                 await this.db.query(
-                        'INSERT INTO zone_activity (zone_id, day, msgs, reacts, voice_minutes, event_points) VALUES (?, CURRENT_DATE(), 0, 0, ?, 0) ON DUPLICATE KEY UPDATE voice_minutes = voice_minutes + VALUES(voice_minutes)',
+                        'INSERT INTO zone_activity (zone_id, day, msgs, reacts, voice_minutes, event_points) VALUES (?, CURRENT_DATE(), 0, 0, ?, 0) AS new ON DUPLICATE KEY UPDATE voice_minutes = voice_minutes + new.voice_minutes',
                         [zoneId, minutes]
                 );
         }
@@ -42,9 +42,8 @@ class ActivityService {
                 const m = Number(rows?.[0]?.msgs || 0);
                 const v = Number(rows?.[0]?.voice || 0);
 
-                // Targets to reach “100%” (tune if needed)
-                const Tm = 1000; // msgs per 14 days
-                const Tv = 600; // voice minutes per 14 days
+                const Tm = Number(process.env.ACTIVITY_TARGET_MSGS) || 1000;
+                const Tv = Number(process.env.ACTIVITY_TARGET_VOICE) || 600;
 
                 const sm = Math.min(1, m / Tm);
                 const sv = Math.min(1, v / Tv);
@@ -69,7 +68,7 @@ class ActivityService {
 				const ch = await this.client.channels.fetch(z.text_reception_id).catch(()=>null);
 				if (ch) {
 					const percentage = Math.round(score * 100);
-					ch.send(`⚠️ Faible activité détectée: ${percentage}% de l'objectif sur 14 jours. Merci de relancer la zone.`).catch(()=>{});
+					ch.send(`⚠️ Faible activité détectée: ${percentage}% de l'objectif sur 14 jours. Merci de relancer la zone.`).catch((err) => { console.debug('Failed to send low activity alert', { err, zoneId: z.id }); });
 				}
 			}
 		}
