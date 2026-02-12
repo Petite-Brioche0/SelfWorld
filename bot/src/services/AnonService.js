@@ -2,7 +2,7 @@
 
 // Anonymous channel system: detects messages, deletes them, then resends the message with a random name through the anon channel of each zone, and logs them 
 const crypto = require('crypto');
-const { WebhookClient, EmbedBuilder, MessageFlags } = require('discord.js');
+const { WebhookClient, EmbedBuilder } = require('discord.js');
 const { generateAnonName } = require('../utils/anonNames');
 
 class AnonService {
@@ -43,7 +43,7 @@ class AnonService {
 	const memberRole = await guild.roles.fetch(zoneRow.role_member_id).catch(() => null);
 	if (memberRole?.color) return memberRole.color;
 	}
-	} catch {}
+	} catch { /* ignored */ }
 	return 0x5865f2;
 	}
 

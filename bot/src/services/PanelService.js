@@ -171,7 +171,7 @@ class PanelService {
                 let resolvedColor = 0x5865f2;
                 try {
                         resolvedColor = await this.#resolveZoneColor(zoneRow);
-                } catch {}
+                } catch { /* ignored */ }
 
                 const embed = new EmbedBuilder()
                         .setTitle('🛠️ Panneau à jour ?')
@@ -388,12 +388,12 @@ class PanelService {
 		const color = row?.color || (role.hexColor && role.hexColor !== '#000000' ? role.hexColor : null);
 
 		embed
-			.setTitle(`🎭 Rôle : ${role.name}`)
+			.setTitle(`🎭 Rôle : ${role.name}`)
 			.setDescription(
 				[
-					`ID : \`${role.id}\``,
-					`Couleur : ${color ? `\`${color}\`` : 'Aucune'}`,
-					row?.name && row.name !== role.name ? `Nom interne : ${row.name}` : null
+					`ID : \`${role.id}\``,
+					`Couleur : ${color ? `\`${color}\`` : 'Aucune'}`,
+					row?.name && row.name !== role.name ? `Nom interne : ${row.name}` : null
 				]
 					.filter(Boolean)
 					.join('\n')
@@ -546,7 +546,7 @@ class PanelService {
 				: 'Les salons vocaux n’ont pas de description.';
 
 		embed
-			.setTitle(`🧭 Salon : ${channel.name}`)
+			.setTitle(`🧭 Salon : ${channel.name}`)
 			.setDescription(
 				isProtected
 					? 'Ce salon est protégé. Seules certaines actions sont autorisées.'
@@ -678,7 +678,7 @@ class PanelService {
                let resolvedColor = 0x5865f2;
                try {
                        resolvedColor = await this.#resolveZoneColor(zoneRow);
-               } catch {}
+               } catch { /* ignored */ }
 
                const embed = new EmbedBuilder()
                        .setColor(resolvedColor)
@@ -1074,7 +1074,7 @@ class PanelService {
                                 if (Array.isArray(parsed)) {
                                         return this.#parseTags(parsed);
                                 }
-                        } catch {}
+                        } catch { /* ignored */ }
                         return raw
                                 .split(',')
                                 .map((entry) => entry.trim().toLowerCase())
@@ -1111,7 +1111,7 @@ class PanelService {
 				const memberRole = await g.roles.fetch(zoneRow.role_member_id).catch(() => null);
 				if (memberRole?.color) return memberRole.color;
 			}
-		} catch { }
+		} catch { /* ignored */ }
 		return 0x5865f2;
 	}
 
@@ -1195,7 +1195,7 @@ class PanelService {
 
                                 const { embed, components } = await this.renderMembers(zoneRow, memberId);
                                 await interaction.editReply({ embeds: [embed], components }).catch(() => { });
-                        } catch (err) {
+                        } catch (_err) {
                                 await interaction.followUp?.({ content: '❌ **Erreur de mise à jour**\n\nImpossible de mettre à jour les rôles pour le moment. Réessaye dans quelques instants.', flags: MessageFlags.Ephemeral }).catch(() => { });
                         }
                         return true;
@@ -1238,7 +1238,7 @@ class PanelService {
                                         try {
                                                 await member.roles.add(role);
                                                 addedSuccessfully.push(memberId);
-                                        } catch { }
+                                        } catch { /* ignored */ }
                                 }
 
                                 const removedSuccessfully = [];
@@ -1248,7 +1248,7 @@ class PanelService {
                                         try {
                                                 await member.roles.remove(role);
                                                 removedSuccessfully.push(memberId);
-                                        } catch { }
+                                        } catch { /* ignored */ }
                                 }
 
                                 for (const memberId of addedSuccessfully) {
@@ -1261,7 +1261,7 @@ class PanelService {
 
 				const { embed, components } = await this.renderRoles(zoneRow, roleId);
 				await interaction.message.edit({ embeds: [embed], components }).catch(() => { });
-			} catch (err) {
+			} catch (_err) {
 				await interaction.followUp?.({ content: '❌ **Erreur de mise à jour**\n\nImpossible de mettre à jour les membres du rôle. Vérifie que le rôle existe toujours.', flags: MessageFlags.Ephemeral }).catch(() => { });
 			}
 			return true;
@@ -1313,7 +1313,7 @@ class PanelService {
 
 				const { embed, components } = await this.renderChannels(zoneRow, channelId);
 				await interaction.message.edit({ embeds: [embed], components }).catch(() => { });
-			} catch (err) {
+			} catch (_err) {
 				await interaction.followUp?.({ content: '❌ **Erreur de mise à jour**\n\nImpossible de mettre à jour les permissions du salon. Vérifie qu\'il existe toujours.', flags: MessageFlags.Ephemeral }).catch(() => { });
 			}
 			return true;
@@ -1431,7 +1431,7 @@ class PanelService {
                                         await this.db.query('DELETE FROM zone_members WHERE zone_id = ? AND user_id = ?', [zoneRow.id, memberId]).catch(() => { });
                                         const { embed, components } = await this.renderMembers(zoneRow);
                                         await interaction.editReply({ embeds: [embed], components }).catch(() => { });
-                                } catch (err) {
+                                } catch (_err) {
                                         await interaction.followUp?.({ content: '❌ **Exclusion impossible**\n\nCe membre ne peut pas être exclu pour le moment. Vérifie qu\'il est toujours dans la zone.', flags: MessageFlags.Ephemeral }).catch(() => { });
                                         const { embed, components } = await this.renderMembers(zoneRow, memberId, { confirmKickFor: memberId });
                                         await interaction.editReply({ embeds: [embed], components }).catch(() => { });
@@ -1538,7 +1538,7 @@ class PanelService {
                                         await this.db.query('DELETE FROM zone_roles WHERE zone_id = ? AND role_id = ?', [zoneRow.id, roleId]);
                                         await this.refresh(zoneRow.id, ['roles']);
                                         await interaction.followUp({ content: '✅ **Rôle supprimé**\n\nLe rôle a été supprimé avec succès de cette zone.', flags: MessageFlags.Ephemeral }).catch(() => { });
-                                } catch (err) {
+                                } catch (_err) {
                                         await interaction.followUp({ content: '❌ **Suppression impossible**\n\nCe rôle ne peut pas être supprimé pour le moment. Vérifie qu\'il existe toujours.', flags: MessageFlags.Ephemeral }).catch(() => { });
 				}
 				return true;
@@ -1654,7 +1654,7 @@ class PanelService {
 					if (channel) await channel.delete(`Suppression via panneau de zone #${zoneRow.id}`).catch(() => { });
 					await this.refresh(zoneRow.id, ['channels']);
 					await interaction.followUp({ content: '✅ **Salon supprimé**\n\nLe salon a été supprimé avec succès de cette zone.', flags: MessageFlags.Ephemeral }).catch(() => { });
-				} catch (err) {
+				} catch (_err) {
 					await interaction.followUp({ content: '❌ **Suppression impossible**\n\nCe salon ne peut pas être supprimé pour le moment. Vérifie qu\'il existe toujours.', flags: MessageFlags.Ephemeral }).catch(() => { });
 				}
 				return true;
@@ -1716,7 +1716,7 @@ class PanelService {
 				);
 				await interaction.editReply({ content: `✅ **Rôle créé**\n\nLe rôle <@&${role.id}> a été créé avec succès dans cette zone.` }).catch(() => { });
 				await this.refresh(zoneRow.id, ['roles']);
-			} catch (err) {
+			} catch (_err) {
 				await interaction.editReply({ content: '❌ **Création impossible**\n\nImpossible de créer ce rôle pour le moment. Réessaye dans quelques instants.' }).catch(() => { });
 			}
 			return true;
@@ -1757,7 +1757,7 @@ class PanelService {
 				);
 				await interaction.editReply({ content: '✅ **Rôle mis à jour**\n\nLes modifications du rôle ont été appliquées avec succès.' }).catch(() => { });
 				await this.refresh(zoneRow.id, ['roles']);
-			} catch (err) {
+			} catch (_err) {
 				await interaction.editReply({ content: '❌ **Modification impossible**\n\nImpossible de modifier ce rôle. Vérifie qu\'il existe toujours et réessaye.' }).catch(() => { });
 			}
 			return true;
@@ -1808,7 +1808,7 @@ class PanelService {
 				await channel.permissionOverwrites.set(overwrites);
 				await interaction.editReply({ content: `✅ **Salon créé**\n\nLe salon ${channelType === ChannelType.GuildVoice ? 'vocal' : 'textuel'} a été créé avec succès dans cette zone.` }).catch(() => { });
 				await this.refresh(zoneRow.id, ['channels']);
-			} catch (err) {
+			} catch (_err) {
 				await interaction.editReply({ content: '❌ **Création impossible**\n\nImpossible de créer ce salon pour le moment. Réessaye dans quelques instants.' }).catch(() => { });
 			}
 			return true;
@@ -1844,7 +1844,7 @@ class PanelService {
 				}
 				await interaction.editReply({ content: '✅ **Salon mis à jour**\n\nLes modifications du salon ont été appliquées avec succès.' }).catch(() => { });
 				await this.refresh(zoneRow.id, ['channels']);
-			} catch (err) {
+			} catch (_err) {
 				await interaction.editReply({ content: '❌ **Modification impossible**\n\nImpossible de modifier ce salon. Vérifie qu\'il existe toujours et réessaye.' }).catch(() => { });
 			}
 			return true;

@@ -3,9 +3,9 @@
 const { SlashCommandBuilder, EmbedBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 
 async function safeFetchChannel(client, id) { if (!id) return null; try { return await client.channels.fetch(id); } catch { return null; } }
-async function safeDeleteChannel(ch) { if (ch) { try { await ch.delete('Zone delete'); } catch {} } }
+async function safeDeleteChannel(ch) { if (ch) { try { await ch.delete('Zone delete'); } catch { /* ignored */ } } }
 async function safeFetchRole(guild, id) { if (!id) return null; try { return await guild.roles.fetch(id); } catch { return null; } }
-async function safeDeleteRole(role) { if (role) { try { await role.delete('Zone delete'); } catch {} } }
+async function safeDeleteRole(role) { if (role) { try { await role.delete('Zone delete'); } catch { /* ignored */ } } }
 
 async function columnExists(pool, table, column) {
 	const [rows] = await pool.query(

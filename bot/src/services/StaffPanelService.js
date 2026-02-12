@@ -943,7 +943,7 @@ class StaffPanelService {
 			await this.#reply(interaction, {
 				content: `⏰ **Publication programmée**\n\n` +
 					`📅 Date prévue : **${this.#formatSchedule(scheduledAt)}** (heure de Paris)\n\n` +
-					`L\'annonce ou événement sera publié automatiquement à cette date.`,
+					`L'annonce ou événement sera publié automatiquement à cette date.`,
 				flags: MessageFlags.Ephemeral
 			});
 		} catch (err) {
@@ -1368,11 +1368,6 @@ class StaffPanelService {
 		return dt.toLocaleString('fr-FR', { timeZone: 'Europe/Paris' });
 	}
 
-	#formatTimestamp(date) {
-		if (!(date instanceof Date)) return '—';
-		const unix = Math.floor(date.getTime() / 1000);
-		return `<t:${unix}:F>`;
-	}
 
 	#formatParisScheduleParts(value) {
 		const dt = new Date(value);
@@ -1508,7 +1503,7 @@ class StaffPanelService {
 				[eventId]
 			);
 			return Number(rows?.[0]?.n || 0);
-		} catch (err) {
+		} catch (_err) {
 			try {
 				const [rows] = await this.db.query(
 					'SELECT COUNT(*) AS n FROM event_participants WHERE event_id = ?',
