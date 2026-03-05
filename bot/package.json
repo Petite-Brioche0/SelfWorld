@@ -10,7 +10,9 @@
 	"scripts": {
 		"dev": "node src/index.js",
 		"lint": "eslint src/",
-		"deploy:cmd": "node src/deploy-commands.js"
+		"deploy:cmd": "node src/deploy-commands.js",
+		"test": "vitest run",
+		"test:watch": "vitest"
 	},
 	"dependencies": {
 		"@discordjs/rest": "^2.3.0",
@@ -25,6 +27,7 @@
 		"zod": "^3.23.8"
 	},
 	"devDependencies": {
-		"eslint": "^9.12.0"
+		"eslint": "^9.12.0",
+		"vitest": "^4.0.18"
 	}
 }

@@ -179,34 +179,60 @@ bot/
 │   │   ├── interactionCreate.js
 │   │   ├── guildMemberAdd.js
 │   │   └── guildMemberRemove.js
+│   ├── i18n/              # Locale strings
+│   │   └── fr.js          # French locale (flat key/value)
 │   ├── services/          # Business logic layer
 │   │   ├── ZoneService.js
 │   │   ├── AnonService.js
 │   │   ├── HubService.js
+│   │   │   ├── hub/requests.js   # Modal handlers + request lifecycle
+│   │   │   └── hub/builders.js   # Embed/form builders + formatters
 │   │   ├── ActivityService.js
 │   │   ├── TempGroupService.js
 │   │   ├── EventService.js
 │   │   ├── PolicyService.js
+│   │   │   ├── policy/creation.js     # Zone creation requests
+│   │   │   ├── policy/config.js       # Policy config interactions
+│   │   │   ├── policy/joinRequests.js # Join request lifecycle
+│   │   │   └── policy/inviteCodes.js  # Invite code CRUD
 │   │   ├── PanelService.js
+│   │   │   ├── panel/render.js    # Panel embed renderers
+│   │   │   ├── panel/members.js   # Member interaction handlers
+│   │   │   ├── panel/roles.js     # Role interaction handlers
+│   │   │   └── panel/channels.js  # Channel interaction handlers
 │   │   ├── StaffPanelService.js
 │   │   ├── WelcomeService.js
 │   │   └── ThrottleService.js
-│   ├── utils/             # Utility functions
-│   │   ├── TaskScheduler.js
-│   │   ├── ids.js
-│   │   ├── anonNames.js
-│   │   ├── commandLoader.js
-│   │   ├── db.js
-│   │   ├── permissions.js
-│   │   └── validation.js
-│   ├── deploy-commands.js # Slash command registration
-│   └── index.js           # Entry point
+│   └── utils/             # Utility functions
+│       ├── TaskScheduler.js
+│       ├── db.js
+│       ├── discord.js        # Shared Discord helpers (safeReply, fetchChannel…)
+│       ├── embeds.js         # Shared embed builders + color constants
+│       ├── i18n.js           # t(key, vars) localisation helper
+│       ├── ids.js
+│       ├── anonNames.js
+│       ├── commandLoader.js
+│       ├── permissions.js
+│       ├── serviceHelpers.js # normalizeColor, parseParticipants, …
+│       └── validation.js
+├── tests/                 # Vitest unit tests
+│   ├── helpers/
+│   │   ├── mockDb.js
+│   │   ├── mockClient.js
+│   │   └── mockInteraction.js
+│   ├── services/
+│   │   └── ActivityService.test.js
+│   └── utils/
+│       └── serviceHelpers.test.js
 ├── schema.sql             # Database schema
+├── vitest.config.js       # Test runner configuration
 ├── package.json
 └── .env.example
 ```
 
 > **Note:** User-facing interactions (joining zones, browsing, invite codes, events, etc.) are handled through button/modal/select-menu interactions routed via `interactionCreate.js`, not through dedicated slash command files.
+>
+> **Note:** Large services (HubService, PolicyService, PanelService) are decomposed into domain sub-modules using a prototype mixin pattern. The coordinator file handles routing and shared infrastructure; domain files hold the business logic.
 
 ---
 
@@ -232,13 +258,13 @@ Manages zone lifecycle including creation, deletion, member management, and perm
 Provides anonymous messaging functionality with persistent identities per zone. Uses webhooks for message relaying and maintains comprehensive audit logs.
 
 ### HubService
-Creates personalized welcome channels for new members with interactive panels. Manages hub requests for announcements and events.
+Creates personalized welcome channels for new members with interactive panels. Manages hub requests for announcements and events, including draft/review/approval workflows.
 
 ### PolicyService
 Handles zone access policies (open/ask/closed), join requests, invite code generation, and zone creation request workflows.
 
 ### PanelService
-Manages the admin panel channels within each zone, providing interactive controls for zone configuration, member management, and role assignment.
+Manages the admin panel channels within each zone, providing interactive controls for zone configuration, member management, role assignment, and channel management.
 
 ### StaffPanelService
 Manages staff-level announcement and event scheduling panels with preview/approval workflows.
@@ -247,7 +273,7 @@ Manages staff-level announcement and event scheduling panels with preview/approv
 Handles the welcome flow for new members joining the server, including zone browsing and join-code redemption.
 
 ### ActivityService
-Tracks zone activity and sends alerts for low engagement. Uses a normalized scoring algorithm to compare activity against target metrics.
+Tracks zone activity and sends alerts for low engagement. Uses a normalized scoring algorithm (60% messages, 40% voice minutes) to compare activity against target metrics.
 
 ### TempGroupService
 Manages temporary groups within zones with automatic expiration. Creates isolated channel structures with custom permissions.
@@ -257,6 +283,22 @@ Handles event lifecycle management including scheduling, participant tracking, a
 
 ### ThrottleService
 In-memory rate limiting and cooldown system to prevent spam and abuse across all interaction types.
+
+---
+
+## 🧪 Testing
+
+The project uses [Vitest](https://vitest.dev/) for unit testing.
+
+```bash
+# Run all tests once
+npm test
+
+# Watch mode
+npm run test:watch
+```
+
+Tests cover critical business logic (activity scoring, utility functions) using lightweight mocks — no real database or Discord connection required.
 
 ---
 
@@ -349,9 +391,9 @@ Quick start:
 
 ### Code Style
 
-- Use ESLint for code formatting
+- Use ESLint for code formatting (`npm run lint`)
 - Follow existing naming conventions
-- Add JSDoc comments for new methods
+- Add JSDoc comments for new public methods
 - Update documentation for new features
 
 ---
