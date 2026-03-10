@@ -27,6 +27,10 @@ class ZoneService {
                 this.panelService = panelService;
         }
 
+        setRepairService(repairService) {
+                this.repairService = repairService;
+        }
+
         isReceptionChannel(channelId) {
                 if (!channelId) return false;
                 return this._receptionSet.has(String(channelId));
@@ -388,12 +392,14 @@ class ZoneService {
                         });
 
                         for (const channel of createdChannels) {
+                                this.repairService?.suppressChannel(channel.id);
                                 await channel.delete('Zone creation rollback').catch((deleteErr) => {
                                         if (deleteErr?.code === 10003) return; // Unknown channel
                                         this.logger?.warn({ err: deleteErr, channelId: channel?.id }, 'Failed to delete channel during rollback');
                                 });
                         }
                         for (const role of createdRoles) {
+                                this.repairService?.suppressRole(role.id);
                                 await role.delete('Zone creation rollback').catch((deleteErr) => {
                                         if (deleteErr?.code === 10011) return; // Unknown role
                                         this.logger?.warn({ err: deleteErr, roleId: role?.id }, 'Failed to delete role during rollback');
@@ -421,6 +427,7 @@ class ZoneService {
                 if (!channelId) return;
                 const channel = await guild.channels.fetch(channelId).catch(() => null);
                 if (!channel) return;
+                this.repairService?.suppressChannel(channelId);
                 await channel.delete(reason).catch((err) => {
                         this.logger?.warn({ err, channelId }, 'Failed to delete zone channel');
                 });
@@ -430,6 +437,7 @@ class ZoneService {
                 if (!roleId) return;
                 const role = await guild.roles.fetch(roleId).catch(() => null);
                 if (!role) return;
+                this.repairService?.suppressRole(roleId);
                 await role.delete(reason).catch((err) => {
                         this.logger?.warn({ err, roleId }, 'Failed to delete zone role');
                 });
@@ -487,6 +495,7 @@ class ZoneService {
                                 if (!channel) continue;
                                 if (channel.parentId && channel.parentId === categoryId) {
                                         processed.add(channel.id);
+                                        this.repairService?.suppressChannel(channel.id);
                                         await channel
                                                 .delete(reason)
                                                 .catch((err) => this.logger?.warn({ err, channelId: channel.id }, 'Failed to delete zone child channel'));
@@ -510,6 +519,7 @@ class ZoneService {
                 if (categoryId && !processed.has(categoryId)) {
                         const category = await guild.channels.fetch(categoryId).catch(() => null);
                         if (category) {
+                                this.repairService?.suppressChannel(categoryId);
                                 await category.delete(reason).catch((err) => {
                                         this.logger?.warn({ err, categoryId }, 'Failed to delete zone category');
                                 });
@@ -637,6 +647,7 @@ class ZoneService {
                 if (!channel || !channel.guild) throw new Error('❌ Canal introuvable — Ce canal a été supprimé ou n\'existe pas.');
                 const zone = await this.#getZoneByCategory(channel.parentId);
                 if (!zone) throw new Error('⚠️ Ce canal ne fait pas partie d\'une zone gérée — Tu ne peux effectuer cette action que sur les canaux de zones.');
+                this.repairService?.suppressChannel(channelId);
                 await channel.delete('Zone channel delete').catch((err) => {
                         if (err?.code === 10003) return; // Unknown channel
                         this.logger?.warn({ err, channelId }, 'Failed to delete zone channel');
@@ -682,10 +693,13 @@ class ZoneService {
                 const guild = await this.#fetchGuild(zone);
                 if (!guild) throw new Error('❌ Guilde introuvable — Le serveur Discord n\'est plus accessible.');
                 const role = await guild.roles.fetch(roleId).catch(() => null);
-                if (role) await role.delete('Zone role delete').catch((err) => {
-                        if (err?.code === 10011) return; // Unknown role
-                        this.logger?.warn({ err, roleId, zoneId }, 'Failed to delete zone role');
-                });
+                if (role) {
+                        this.repairService?.suppressRole(roleId);
+                        await role.delete('Zone role delete').catch((err) => {
+                                if (err?.code === 10011) return; // Unknown role
+                                this.logger?.warn({ err, roleId, zoneId }, 'Failed to delete zone role');
+                        });
+                }
                 await this.db.query('DELETE FROM zone_roles WHERE zone_id = ? AND role_id = ?', [zone.id, roleId]);
                 await this.db.query('DELETE FROM zone_member_roles WHERE zone_id = ? AND role_id = ?', [zone.id, roleId]);
                 await this.#refreshPanel(zone.id, ['roles']);

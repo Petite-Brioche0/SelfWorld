@@ -101,18 +101,34 @@ class WelcomeService {
                         .setTitle('Bienvenue !')
                         .setColor(0x5865f2)
                         .setDescription(
-                                [
-                                        '• Les zones sont des espaces isolés : seuls leurs membres voient les discussions.',
-                                        '• Pas de liste globale des membres, tu restes discret tant que tu n\'entres pas.',
-                                        '• Pour rejoindre : découvre les zones ouvertes, demande l\'accès ou saisis un code reçu.',
-                                        '• Pour créer ta zone, utilise « Demander une zone » et remplis la demande.',
-                                        '• Reste respectueux : pas de doxx, pas de harcèlement, respecte les règles du serveur.'
-                                ].join('\n')
+                                'Ce serveur est organisé en **zones** — des espaces privés où seuls les membres voient les discussions.\n\u200b'
+                        )
+                        .addFields(
+                                {
+                                        name: '🤝 Un espace pour se retrouver',
+                                        value: 'Ce serveur est fait pour rassembler des gens qui ont parfois du mal à s\'intégrer — un endroit bienveillant pour faire des activités ensemble, à son rythme.',
+                                        inline: false
+                                },
+                                {
+                                        name: '🚪 Rejoindre une zone',
+                                        value: '**Découvrir** les zones ouvertes · **Demander l\'accès** à une zone privée · **Saisir un code** si un ami t\'en a envoyé un',
+                                        inline: false
+                                },
+                                {
+                                        name: '🏗️ Ta propre zone',
+                                        value: 'Chacun peut créer sa zone personnelle — un espace à soi pour inviter qui tu veux et organiser ce que tu veux.',
+                                        inline: false
+                                },
+                                {
+                                        name: '📋 Règles',
+                                        value: 'Pas de harcèlement, pas de conflits, du bon sens. Le propriétaire du serveur se réserve le droit de sanctionner tout abus ou exploit.',
+                                        inline: false
+                                }
                         );
 
                 const assistant = new EmbedBuilder()
-                        .setTitle('Assistant de zones')
-                        .setDescription('Choisis une option ci-dessous pour commencer.')
+                        .setTitle('Prêt à explorer ?')
+                        .setDescription('Découvre les zones existantes, rejoins celle d\'un ami ou crée la tienne — tout commence ici.')
                         .setColor(0x5865f2);
 
                 const row = new ActionRowBuilder().addComponents(
@@ -254,7 +270,9 @@ class WelcomeService {
         }
 
         #buildZoneActionRow(zone) {
-                const joinLabel = zone.policy === 'open' ? 'Rejoindre' : 'Demander à rejoindre';
+                const zoneName = zone.profile_title || zone.name || 'cette zone';
+                const truncated = zoneName.length > 20 ? zoneName.slice(0, 19) + '…' : zoneName;
+                const joinLabel = zone.policy === 'open' ? `Rejoindre ${truncated}` : `Demander — ${truncated}`;
                 return new ActionRowBuilder().addComponents(
                         new ButtonBuilder()
                                 .setCustomId(`welcome:zone:join:${zone.id}`)
@@ -311,13 +329,6 @@ class WelcomeService {
                         }
 
                         if (zone.policy === 'ask') {
-                                const joinMode = zone.ask_join_mode || 'request';
-                                if (!['request', 'both'].includes(joinMode)) {
-                                        return this.#sendReply(interaction, {
-                                                content: '🔐 **Code requis**\n\nCette zone nécessite un code d\'invitation.\n\n> 💡 *Utilise le bouton « Rejoindre via un code » pour accéder à cette zone.*'
-                                        });
-                                }
-
                                 const result = await policyService.createJoinRequest(zone.id, interaction.user.id, {
                                         note: null
                                 });

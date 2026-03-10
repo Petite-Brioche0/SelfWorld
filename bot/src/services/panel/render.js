@@ -564,25 +564,12 @@ async function renderPolicy(zoneRow) {
 		);
 
 	if (policy === 'ask') {
-		const mode = zoneRow.ask_join_mode || 'request';
 		const approver = zoneRow.ask_approver_mode || 'owner';
-		embed.addFields(
-			{
-				name: 'Mode de demande',
-				value:
-					mode === 'both'
-						? 'Demande ou code'
-						: mode === 'invite'
-						? 'Codes uniquement'
-						: 'Demande classique',
-				inline: false
-			},
-			{
-				name: 'Décideur',
-				value: approver === 'members' ? 'Membres de la zone' : 'Owner uniquement',
-				inline: false
-			}
-		);
+		embed.addFields({
+			name: 'Décideur',
+			value: approver === 'members' ? 'Membres de la zone' : 'Owner uniquement',
+			inline: false
+		});
 	}
 
 	const profileTitle = zoneRow.profile_title || zoneRow.name || 'Profil public';
@@ -600,17 +587,15 @@ async function renderPolicy(zoneRow) {
 		embed.addFields({ name: 'Tags', value: tags.map((tag) => `#${tag}`).join(' · '), inline: false });
 	}
 
-	if (policy === 'open') {
-		const activityService = this._getActivityService();
-		if (activityService?.getZoneActivityScore && activityService?.buildProgressBar) {
-			try {
-				const score = await activityService.getZoneActivityScore(zoneRow.id, 14);
-				const bar = activityService.buildProgressBar(score);
-				const pct = (score * 100) | 0;
-				embed.addFields({ name: 'Activité (14j)', value: `${bar}  ${pct}%`, inline: false });
-			} catch (err) {
-				this.logger?.warn({ err, zoneId: zoneRow.id }, 'Failed to compute zone activity score');
-			}
+	const activityService = this._getActivityService();
+	if (activityService?.getZoneActivityScore && activityService?.buildProgressBar) {
+		try {
+			const score = await activityService.getZoneActivityScore(zoneRow.id, 14);
+			const bar = activityService.buildProgressBar(score);
+			const pct = (score * 100) | 0;
+			embed.addFields({ name: 'Activité (14j)', value: `${bar}  ${pct}%`, inline: false });
+		} catch (err) {
+			this.logger?.warn({ err, zoneId: zoneRow.id }, 'Failed to compute zone activity score');
 		}
 	}
 
@@ -639,32 +624,6 @@ async function renderPolicy(zoneRow) {
 	components.push(buttonRow);
 
 	if (policy === 'ask') {
-		const joinModeSelect = new StringSelectMenuBuilder()
-			.setCustomId(`panel:policy:askmode:${zoneRow.id}`)
-			.setPlaceholder('Mode de demande…')
-			.setMinValues(1)
-			.setMaxValues(1)
-			.addOptions([
-				{
-					label: 'Sur demande',
-					value: 'request',
-					description: 'Les personnes soumettent une demande classique.',
-					default: (zoneRow.ask_join_mode || 'request') === 'request'
-				},
-				{
-					label: 'Sur invitation',
-					value: 'invite',
-					description: 'Accès via codes générés.',
-					default: zoneRow.ask_join_mode === 'invite'
-				},
-				{
-					label: 'Les deux',
-					value: 'both',
-					description: 'Demande ou code, selon la situation.',
-					default: zoneRow.ask_join_mode === 'both'
-				}
-			]);
-
 		const approverSelect = new StringSelectMenuBuilder()
 			.setCustomId(`panel:policy:approver:${zoneRow.id}`)
 			.setPlaceholder('Qui approuve ?')
@@ -685,7 +644,6 @@ async function renderPolicy(zoneRow) {
 				}
 			]);
 
-		components.push(new ActionRowBuilder().addComponents(joinModeSelect));
 		components.push(new ActionRowBuilder().addComponents(approverSelect));
 	}
 

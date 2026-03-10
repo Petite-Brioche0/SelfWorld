@@ -175,7 +175,10 @@ async function _handleChannelButton(interaction, parts, zoneRow) {
 		try {
 			const guild = await this.client.guilds.fetch(zoneRow.guild_id);
 			const channel = await guild.channels.fetch(entry.channel.id).catch(() => null);
-			if (channel) await channel.delete(`Suppression via panneau de zone #${zoneRow.id}`).catch((err) => { this.logger?.debug({ err }, 'Failed to delete resource'); });
+			if (channel) {
+			this.client?.context?.services?.repair?.suppressChannel(channel.id);
+			await channel.delete(`Suppression via panneau de zone #${zoneRow.id}`).catch((err) => { this.logger?.debug({ err }, 'Failed to delete resource'); });
+		}
 			await this.refresh(zoneRow.id, ['channels']);
 			await interaction.followUp({ content: '✅ **Salon supprimé**\n\nLe salon a été supprimé avec succès de cette zone.', flags: MessageFlags.Ephemeral }).catch(() => { });
 		} catch (_err) {

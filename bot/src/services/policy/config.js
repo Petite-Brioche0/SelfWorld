@@ -14,7 +14,7 @@ const { normalizeColor } = require('../../utils/serviceHelpers');
 const { sanitizeName } = require('../../utils/validation');
 
 const POLICY_VALUES = new Set(['open', 'ask', 'closed']);
-const ASK_MODES = new Set(['request', 'invite', 'both']);
+const ASK_MODES = new Set(['request']);
 const APPROVER_MODES = new Set(['owner', 'members']);
 
 // --- Module-local helpers ---
@@ -201,6 +201,7 @@ async function _deleteStoredAnchor(svc, channelId, messageId) {
 	await message.unpin().catch((err) => {
 		svc.logger?.warn({ err, messageId, channelId }, 'Failed to unpin anchor message');
 	});
+	svc.client?.context?.services?.repair?.suppressMessage(messageId);
 	await message.delete().catch((err) => {
 		if (err?.code === 10008) return;
 		svc.logger?.warn({ err, messageId, channelId }, 'Failed to delete anchor message');
@@ -501,15 +502,13 @@ module.exports = {
 		if (!zone) throw new Error('Zone introuvable');
 
 		const updates = { policy };
-		if (policy === 'open') {
-			if (!zone.profile_title) updates.profile_title = zone.name || 'Zone';
-			if (!zone.profile_color) {
-				try {
-					updates.profile_color = await _resolveOwnerColor(this, zone);
-				} catch (err) {
-					this.logger?.debug({ err, zoneId: zone.id }, 'Failed to resolve owner color, using default');
-					updates.profile_color = '#5865F2';
-				}
+		if (!zone.profile_title) updates.profile_title = zone.name || 'Zone';
+		if (!zone.profile_color) {
+			try {
+				updates.profile_color = await _resolveOwnerColor(this, zone);
+			} catch (err) {
+				this.logger?.debug({ err, zoneId: zone.id }, 'Failed to resolve owner color, using default');
+				updates.profile_color = '#5865F2';
 			}
 		}
 
@@ -736,7 +735,8 @@ module.exports = {
 		const channel = await _findInterviewRoom(this, zone);
 		if (!channel) return;
 		try {
-			await channel.delete('Zone join requests mode updated');
+			this.client?.context?.services?.repair?.suppressChannel(channel.id);
+		await channel.delete('Zone join requests mode updated');
 			this.logger?.info({ zoneId: zone.id, channelId: channel.id }, 'Deleted cv-entretien channel');
 		} catch (err) {
 			this.logger?.warn({ err, zoneId: zone.id, channelId: channel.id }, 'Failed to delete cv-entretien channel');

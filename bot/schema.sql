@@ -244,6 +244,8 @@ requests_channel_id VARCHAR(32) NULL,
 events_admin_channel_id VARCHAR(32) NULL,
 events_admin_message_id VARCHAR(32) NULL,
 journal_channel_id VARCHAR(32) NULL,
+setup_channel_id VARCHAR(32) NULL,
+setup_message_id VARCHAR(32) NULL,
 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

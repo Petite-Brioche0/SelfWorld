@@ -1,46 +1,52 @@
-# 🌍 SelfWorld - Discord Zone Management Bot
+# 🌍 SelfWorld — Bot Discord de gestion de zones
 
-> A production-ready Discord bot for creating and managing private community zones with advanced privacy features, anonymous channels, and comprehensive activity tracking.
+> 🇬🇧 [English version available → README.en.md](README.en.md)
+
+> Bot Discord pour créer et gérer des zones communautaires privées, avec messagerie anonyme, panneau de configuration interactif et suivi d'activité.
 
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org/)
 [![Discord.js](https://img.shields.io/badge/discord.js-v14-blue.svg)](https://discord.js.org/)
 [![MySQL](https://img.shields.io/badge/MySQL-8.0+-orange.svg)](https://www.mysql.com/)
 
-## ✨ Features
+---
 
-### 🔒 **Zone Management**
-- Create private zones with customizable permissions
-- Automatic channel creation (reception, general, anonymous, voice)
-- Role-based access control (owner/member roles)
-- Zone activity monitoring and alerts
-- Temporary groups with automatic expiration
-- Custom zone channels with configurable permissions
+## ✨ Fonctionnalités
 
-### 🎭 **Anonymous Messaging**
-- Persistent anonymous identities per zone
-- Webhook-based message relaying
-- Comprehensive audit logging for moderation
-- Mention sanitization for security
+### 🔒 Gestion des zones
+- Création de zones privées avec permissions configurables
+- Création automatique des canaux (réception, général, anonyme, vocal)
+- Contrôle d'accès par rôles (Owner/Membre)
+- Alertes d'activité faible
+- Groupes temporaires avec expiration automatique
+- Canaux personnalisés configurables
 
-### 🎯 **Hub & Welcome System**
-- Personalized welcome channels for new members
-- Interactive panel-based navigation
-- Wizard-style onboarding experience
-- Staff announcement system
-- Event scheduling and management
+### 🎭 Messagerie anonyme
+- Identités anonymes persistantes par zone
+- Relais de messages via webhooks
+- Journal d'audit complet pour la modération
+- Sanitisation des mentions (@everyone, @here)
 
-### 📊 **Activity & Analytics**
-- Normalized activity scoring algorithm
-- Low-activity alerts for inactive zones
-- Daily activity tracking
-- Zone engagement metrics
+### 🚪 Accueil et onboarding
+- Wizard interactif envoyé aux nouveaux membres : navigation des zones, code d'invitation, demande de zone
+- Zones découvrables avec pagination et barre d'activité
+- Codes d'invitation à usage unique, valables 24 h (6 caractères A–Z0–9)
 
-### ⚙️ **Advanced Features**
-- Task scheduler with lifecycle management
-- Rate limiting and spam protection
-- Graceful shutdown handling
-- Structured logging with Pino
-- Owner-only administrative commands
+### 📋 Politique d'accès des zones
+- Trois modes : **open** (accès libre), **ask** (sur demande), **closed** (fermé)
+- Gestion des demandes d'adhésion avec décideur configurable (owner ou membres)
+- Salle `cv-entretien` créée automatiquement en mode `ask / owner`
+- Profil public de la zone (titre, description, couleur, tags)
+
+### 📊 Activité
+- Score d'activité normalisé (60 % messages, 40 % minutes vocales)
+- Alertes quotidiennes pour les zones inactives
+- Suivi par jour en base de données
+
+### ⚙️ Infrastructure
+- Planificateur de tâches avec protection contre l'exécution concurrente
+- Rate limiting en mémoire
+- Arrêt gracieux
+- Logs structurés avec Pino
 
 ---
 
@@ -52,13 +58,13 @@
 └─────────────┬───────────────────────────────────────────────┘
               │
 ┌─────────────▼───────────────────────────────────────────────┐
-│                    Event Handlers                           │
+│                    Gestionnaires d'événements               │
 │  • messageCreate  • interactionCreate  • guildMemberAdd     │
 │  • guildMemberRemove                                        │
 └─────────────┬───────────────────────────────────────────────┘
               │
 ┌─────────────▼───────────────────────────────────────────────┐
-│                    Service Layer                            │
+│                    Couche service                           │
 │  • ZoneService       • AnonService       • HubService       │
 │  • ActivityService   • TempGroupService  • EventService     │
 │  • PolicyService     • PanelService      • WelcomeService   │
@@ -66,18 +72,18 @@
 └─────────────┬───────────────────────────────────────────────┘
               │
 ┌─────────────▼───────────────────────────────────────────────┐
-│                    Data Layer (MySQL)                       │
+│                    Base de données (MySQL)                  │
 │  • Zones  • Members  • Channels  • Activity  • Logs         │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 📋 Prerequisites
+## 📋 Prérequis
 
 - **Node.js** >= 20.0.0
 - **MySQL** >= 8.0
-- **Discord Bot Token** with the following intents:
+- **Token de bot Discord** avec les intents suivants :
   - `GUILDS`
   - `GUILD_MEMBERS`
   - `GUILD_MESSAGES`
@@ -89,133 +95,134 @@
 
 ## 🚀 Installation
 
-### 1. Clone the repository
+### 1. Cloner le dépôt
 
 ```bash
 git clone https://github.com/Petite-Brioche0/SelfWorld.git
 cd SelfWorld/bot
 ```
 
-### 2. Install dependencies
+### 2. Installer les dépendances
 
 ```bash
 npm install
 ```
 
-### 3. Configure environment variables
-
-Copy the example file and fill in your values:
+### 3. Configurer les variables d'environnement
 
 ```bash
 cp .env.example .env
 ```
 
 ```env
-# Discord Configuration
+# Discord
 DISCORD_TOKEN=your_discord_bot_token_here
 CLIENT_ID=your_discord_client_id_here
 GUILD_ID=your_discord_guild_id_here
 
-# Owner Configuration
+# Propriétaire du bot
 OWNER_ID=your_discord_user_id_here
 
-# Database Configuration
+# Base de données
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_USER=selfworld
 DB_PASSWORD=selfworld
 DB_NAME=selfworld
 
-# Environment
+# Environnement
 NODE_ENV=development
 ```
 
-### 4. Set up the database
+### 4. Initialiser la base de données
 
 ```bash
-# Create MySQL database
 mysql -u root -p
+```
 
-# In MySQL shell:
+```sql
 CREATE DATABASE selfworld;
 CREATE USER 'selfworld'@'localhost' IDENTIFIED BY 'selfworld';
 GRANT ALL PRIVILEGES ON selfworld.* TO 'selfworld'@'localhost';
 FLUSH PRIVILEGES;
 EXIT;
+```
 
-# Import schema
+```bash
 mysql -u selfworld -p selfworld < bot/schema.sql
 ```
 
-### 5. Deploy slash commands
+### 5. Déployer les commandes slash
 
 ```bash
 npm run deploy:cmd
 ```
 
-### 6. Start the bot
+### 6. Démarrer le bot
 
 ```bash
-# Development mode with pretty logs
 npm run dev
 ```
 
 ---
 
-## 📁 Project Structure
+## 📁 Structure du projet
 
 ```
 bot/
 ├── src/
-│   ├── commands/          # Slash commands
-│   │   └── admin/         # Owner-only commands
+│   ├── commands/
+│   │   └── admin/                    # Commandes réservées au propriétaire
 │   │       ├── zone.create.js
 │   │       ├── zone.delete.js
 │   │       ├── zones.list.js
 │   │       └── settings.anonlog.set.js
-│   ├── events/            # Discord event handlers
+│   ├── events/                       # Gestionnaires d'événements Discord
 │   │   ├── ready.js
 │   │   ├── messageCreate.js
 │   │   ├── interactionCreate.js
 │   │   ├── guildMemberAdd.js
 │   │   └── guildMemberRemove.js
-│   ├── i18n/              # Locale strings
-│   │   └── fr.js          # French locale (flat key/value)
-│   ├── services/          # Business logic layer
+│   ├── i18n/
+│   │   └── fr.js                     # Locale française (clé/valeur plat)
+│   ├── services/
 │   │   ├── ZoneService.js
 │   │   ├── AnonService.js
-│   │   ├── HubService.js
-│   │   │   ├── hub/requests.js   # Modal handlers + request lifecycle
-│   │   │   └── hub/builders.js   # Embed/form builders + formatters
+│   │   ├── HubService.js             # Coordinateur (mixin)
+│   │   ├── hub/
+│   │   │   ├── requests.js           # Gestionnaires de modaux + cycle de vie des demandes
+│   │   │   └── builders.js           # Constructeurs d'embeds, formatters
 │   │   ├── ActivityService.js
 │   │   ├── TempGroupService.js
 │   │   ├── EventService.js
-│   │   ├── PolicyService.js
-│   │   │   ├── policy/creation.js     # Zone creation requests
-│   │   │   ├── policy/config.js       # Policy config interactions
-│   │   │   ├── policy/joinRequests.js # Join request lifecycle
-│   │   │   └── policy/inviteCodes.js  # Invite code CRUD
-│   │   ├── PanelService.js
-│   │   │   ├── panel/render.js    # Panel embed renderers
-│   │   │   ├── panel/members.js   # Member interaction handlers
-│   │   │   ├── panel/roles.js     # Role interaction handlers
-│   │   │   └── panel/channels.js  # Channel interaction handlers
+│   │   ├── PolicyService.js          # Coordinateur (mixin)
+│   │   ├── policy/
+│   │   │   ├── creation.js           # Demandes de création de zone
+│   │   │   ├── config.js             # Politique, profil public, salle entretien
+│   │   │   ├── joinRequests.js       # Cycle de vie des demandes d'adhésion
+│   │   │   └── inviteCodes.js        # Génération et utilisation des codes
+│   │   ├── PanelService.js           # Coordinateur (mixin)
+│   │   ├── panel/
+│   │   │   ├── render.js             # Rendus des panneaux (membres, rôles, canaux, politique)
+│   │   │   ├── members.js            # Interactions membres
+│   │   │   ├── roles.js              # Interactions rôles
+│   │   │   └── channels.js           # Interactions canaux
 │   │   ├── StaffPanelService.js
 │   │   ├── WelcomeService.js
 │   │   └── ThrottleService.js
-│   └── utils/             # Utility functions
+│   └── utils/
 │       ├── TaskScheduler.js
 │       ├── db.js
-│       ├── discord.js        # Shared Discord helpers (safeReply, fetchChannel…)
-│       ├── embeds.js         # Shared embed builders + color constants
-│       ├── i18n.js           # t(key, vars) localisation helper
-│       ├── ids.js
+│       ├── discord.js                # safeReply, safeDefer, fetchChannel…
+│       ├── embeds.js                 # errorEmbed, successEmbed, infoEmbed + constantes couleur
+│       ├── i18n.js                   # t(key, vars) — interpolation {variable}
+│       ├── ids.js                    # shortId
 │       ├── anonNames.js
 │       ├── commandLoader.js
 │       ├── permissions.js
-│       ├── serviceHelpers.js # normalizeColor, parseParticipants, …
+│       ├── serviceHelpers.js         # normalizeColor, parseParticipants…
 │       └── validation.js
-├── tests/                 # Vitest unit tests
+├── tests/
 │   ├── helpers/
 │   │   ├── mockDb.js
 │   │   ├── mockClient.js
@@ -224,208 +231,177 @@ bot/
 │   │   └── ActivityService.test.js
 │   └── utils/
 │       └── serviceHelpers.test.js
-├── schema.sql             # Database schema
-├── vitest.config.js       # Test runner configuration
+├── schema.sql
+├── vitest.config.js
 ├── package.json
 └── .env.example
 ```
 
-> **Note:** User-facing interactions (joining zones, browsing, invite codes, events, etc.) are handled through button/modal/select-menu interactions routed via `interactionCreate.js`, not through dedicated slash command files.
+> **Note :** Les interactions utilisateur (rejoindre une zone, codes d'invitation, événements, etc.) passent par des boutons, modaux et menus déroulants routés via `interactionCreate.js`, sans commandes slash dédiées.
 >
-> **Note:** Large services (HubService, PolicyService, PanelService) are decomposed into domain sub-modules using a prototype mixin pattern. The coordinator file handles routing and shared infrastructure; domain files hold the business logic.
+> **Note :** Les grands services (HubService, PolicyService, PanelService) sont décomposés en sous-modules via un pattern de mixin prototypal. Le coordinateur gère le routage et l'infrastructure partagée ; les sous-modules contiennent la logique métier.
 
 ---
 
-## 🎮 Key Commands
+## 🎮 Commandes
 
-### Admin Commands (Owner Only)
+### Commandes admin (propriétaire uniquement)
 
-| Command | Description |
-|---------|-------------|
-| `/zone-create` | Create a new zone manually |
-| `/zone-delete <id>` | Delete a zone and all resources |
-| `/zones-list` | List all zones in the guild |
-| `/settings-anonlog-set` | Configure anonymous message logging |
+| Commande | Description |
+|----------|-------------|
+| `/zone-create` | Créer une zone manuellement |
+| `/zone-delete <id>` | Supprimer une zone et toutes ses ressources |
+| `/zones-list` | Lister toutes les zones du serveur |
+| `/settings-anonlog-set` | Configurer le canal de logs anonymes |
 
 ---
 
-## 🛠️ Services Overview
+## 🛠️ Description des services
 
 ### ZoneService
-Manages zone lifecycle including creation, deletion, member management, and permissions. Handles automatic cleanup of orphaned resources and foreign key cascading.
+Gère le cycle de vie des zones : création, suppression, gestion des membres et permissions. Assure le nettoyage des ressources orphelines.
 
 ### AnonService
-Provides anonymous messaging functionality with persistent identities per zone. Uses webhooks for message relaying and maintains comprehensive audit logs.
+Messagerie anonyme avec identités persistantes par zone. Relais via webhooks, journal d'audit complet.
 
 ### HubService
-Creates personalized welcome channels for new members with interactive panels. Manages hub requests for announcements and events, including draft/review/approval workflows.
-
-### PolicyService
-Handles zone access policies (open/ask/closed), join requests, invite code generation, and zone creation request workflows.
-
-### PanelService
-Manages the admin panel channels within each zone, providing interactive controls for zone configuration, member management, role assignment, and channel management.
-
-### StaffPanelService
-Manages staff-level announcement and event scheduling panels with preview/approval workflows.
+Gère les canaux hub personnalisés par membre. Cycle de vie des demandes de hub (annonces, événements) avec workflow brouillon/révision/approbation.
 
 ### WelcomeService
-Handles the welcome flow for new members joining the server, including zone browsing and join-code redemption.
+Wizard d'onboarding interactif envoyé aux nouveaux membres. Permet de parcourir les zones avec pagination, rejoindre via code d'invitation (6 caractères, 24 h, usage unique), envoyer une demande d'adhésion à une zone, ou demander la création d'une nouvelle zone.
+
+### PolicyService
+Gère la politique d'accès des zones (open/ask/closed), les demandes d'adhésion, les codes d'invitation, le profil public (titre, description, couleur, tags) et la liste des zones découvrables. Crée/supprime automatiquement le salon `cv-entretien` selon le mode de décision.
+
+### PanelService
+Panneau d'administration interactif au sein de chaque zone : configuration de la politique et du profil public, gestion des membres, des rôles personnalisés et des canaux.
+
+### StaffPanelService
+Panneaux de planification d'annonces et d'événements avec workflow prévisualisation/approbation.
 
 ### ActivityService
-Tracks zone activity and sends alerts for low engagement. Uses a normalized scoring algorithm (60% messages, 40% voice minutes) to compare activity against target metrics.
+Suivi de l'activité des zones. Score normalisé (60 % messages, 40 % minutes vocales). Alertes quotidiennes pour les zones inactives.
 
 ### TempGroupService
-Manages temporary groups within zones with automatic expiration. Creates isolated channel structures with custom permissions.
+Groupes temporaires dans les zones, avec expiration automatique et structure de canaux isolée.
 
 ### EventService
-Handles event lifecycle management including scheduling, participant tracking, and event-specific temporary groups.
+Gestion du cycle de vie des événements : planification, suivi des participants, groupes temporaires associés.
 
 ### ThrottleService
-In-memory rate limiting and cooldown system to prevent spam and abuse across all interaction types.
+Rate limiting en mémoire pour prévenir le spam sur tous les types d'interactions.
 
 ---
 
-## 🧪 Testing
+## 🧪 Tests
 
-The project uses [Vitest](https://vitest.dev/) for unit testing.
+Le projet utilise [Vitest](https://vitest.dev/).
 
 ```bash
-# Run all tests once
+# Exécuter tous les tests
 npm test
 
-# Watch mode
+# Mode watch
 npm run test:watch
 ```
 
-Tests cover critical business logic (activity scoring, utility functions) using lightweight mocks — no real database or Discord connection required.
+Les tests couvrent la logique métier critique (calcul de score d'activité, fonctions utilitaires) via des mocks légers — aucune connexion réelle à Discord ou MySQL requise.
 
 ---
 
-## 🔄 Task Scheduler
+## 🔄 Planificateur de tâches
 
-The bot includes a robust task scheduler that manages periodic operations:
+Le bot inclut un planificateur qui gère les opérations périodiques :
 
-- **Sweep Expired Groups**: Hourly cleanup of expired temporary groups
-- **Low Activity Alerts**: Daily checks for inactive zones
-- **Process Scheduled Tasks**: Minute-by-minute processing of announcements and events
+- **Sweep des groupes expirés** : nettoyage horaire
+- **Alertes d'activité faible** : vérification quotidienne
+- **Traitement des tâches planifiées** : annonces et événements, toutes les minutes
 
-All tasks include:
-- Timeout protection
-- Concurrent execution prevention
-- Error tracking and logging
-- Graceful shutdown support
-
----
-
-## 🔐 Security Features
-
-- **Mention Sanitization**: Prevents @everyone and @here abuse in anonymous channels
-- **Rate Limiting**: Prevents spam and abuse with flexible rate limiters
-- **Permission Validation**: Strict permission checks on all commands
-- **Webhook Security**: Unique anonymous identities prevent cross-zone tracking
-- **SQL Injection Prevention**: Parameterized queries with column whitelisting
-- **Audit Logging**: Comprehensive logs for moderation and debugging
-- **Database Validation**: Connection health check at startup
+Toutes les tâches bénéficient de :
+- Protection contre les exécutions simultanées
+- Timeout configurable
+- Comptage des erreurs et logs
+- Arrêt gracieux
 
 ---
 
-## 📊 Database Schema
+## 🔐 Sécurité
 
-The bot uses a normalized MySQL schema with proper foreign key constraints and cascading deletes:
-
-- **zones**: Core zone configuration and Discord resource IDs
-- **zone_members**: Zone membership tracking
-- **zone_member_roles**: Custom role assignments per zone member
-- **zone_roles**: Custom zone role definitions
-- **zone_invite_codes**: Invite code management
-- **zone_join_requests**: Join request tracking
-- **zone_creation_requests**: Zone creation request workflows
-- **temp_groups**: Temporary group structures
-- **temp_group_members**: Temporary group membership
-- **temp_group_channels**: Temporary group channels
-- **events**: Event definitions and scheduling
-- **event_participants**: Event participant tracking
-- **anon_channels**: Anonymous channel configuration
-- **anon_logs**: Anonymous message audit logs
-- **zone_activity**: Activity tracking data
-- **hub_channels**: Hub channel assignments per member
-- **hub_requests**: Hub request workflows
-- **staff_announcements**: Staff announcement scheduling
-- **panel_messages**: Interactive panel state
-- **panel_message_registry**: Panel message tracking
-- **settings**: Guild-level configuration
+- **Sanitisation des mentions** : protection contre @everyone / @here dans les canaux anonymes
+- **Rate limiting** : prévention du spam
+- **Vérification des permissions** : contrôles stricts sur toutes les commandes
+- **Sécurité webhook** : identités anonymes uniques par zone
+- **Requêtes paramétrées** : prévention des injections SQL avec liste blanche des colonnes
+- **Journal d'audit** : logs complets pour la modération
+- **Vérification de connexion** : la base de données est testée au démarrage
 
 ---
 
-## 🐛 Debugging
+## 📊 Schéma de base de données
 
-### Enable verbose logging
+MySQL normalisé avec clés étrangères et suppressions en cascade :
 
-Set `NODE_ENV=development` in your `.env` file to enable pretty-printed logs with full stack traces.
-
-### Check task scheduler status
-
-The task scheduler provides status information in logs:
-- Task execution counts
-- Error counts
-- Last successful run timestamp
-
-### Verify database connections
-
-The bot validates the database connection at startup and will exit with a clear error message if MySQL is unreachable.
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
-
-Quick start:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Code Style
-
-- Use ESLint for code formatting (`npm run lint`)
-- Follow existing naming conventions
-- Add JSDoc comments for new public methods
-- Update documentation for new features
+- **zones** — configuration principale et IDs Discord
+- **zone_members** — appartenance aux zones
+- **zone_member_roles** — rôles personnalisés par membre
+- **zone_roles** — définitions des rôles de zone
+- **zone_invite_codes** — codes d'invitation
+- **zone_join_requests** — demandes d'adhésion
+- **zone_creation_requests** — demandes de création de zone
+- **temp_groups** — groupes temporaires
+- **temp_group_members** — membres des groupes temporaires
+- **temp_group_channels** — canaux des groupes temporaires
+- **events** — définitions et planification
+- **event_participants** — participants aux événements
+- **anon_channels** — configuration des canaux anonymes
+- **anon_logs** — logs d'audit des messages anonymes
+- **zone_activity** — données d'activité
+- **hub_channels** — canaux hub par membre
+- **hub_requests** — workflows des demandes hub
+- **staff_announcements** — planification des annonces staff
+- **panel_messages** — état des panneaux interactifs
+- **panel_message_registry** — suivi des messages de panneau
+- **settings** — configuration au niveau du serveur
 
 ---
 
-## 📝 License
+## 🐛 Débogage
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
----
-
-## 🙏 Acknowledgments
-
-- [Discord.js](https://discord.js.org/) - Powerful Discord API wrapper
-- [Pino](https://getpino.io/) - Super fast JSON logger
-- [MySQL2](https://github.com/sidorares/node-mysql2) - Fast MySQL driver
+- Passer `NODE_ENV=development` pour des logs lisibles avec traces complètes.
+- Le planificateur de tâches loggue les compteurs d'exécution, d'erreurs et le timestamp du dernier succès.
+- Le bot valide la connexion MySQL au démarrage et quitte avec un message clair si elle échoue.
 
 ---
 
-## 💡 Support
+## 🤝 Contribuer
 
-For questions, issues, or feature requests:
+1. Forker le dépôt
+2. Créer une branche (`git checkout -b feature/ma-fonctionnalite`)
+3. Commiter les changements
+4. Ouvrir une Pull Request
 
-- Open an issue on GitHub
-- Check existing documentation
-- Review the code comments for implementation details
+### Style de code
+- ESLint strict — toujours lancer `npm run lint` après modification
+- Suivre les conventions de nommage existantes
+
+---
+
+## 📝 Licence
+
+MIT — voir le fichier LICENSE.
+
+---
+
+## 🙏 Remerciements
+
+- [Discord.js](https://discord.js.org/) — wrapper Discord API
+- [Pino](https://getpino.io/) — logger JSON ultra-rapide
+- [MySQL2](https://github.com/sidorares/node-mysql2) — driver MySQL
 
 ---
 
 <div align="center">
 
-**Made with ❤️ for Discord communities**
-
-[Report Bug](https://github.com/Petite-Brioche0/SelfWorld/issues) · [Request Feature](https://github.com/Petite-Brioche0/SelfWorld/issues)
+[Signaler un bug](https://github.com/Petite-Brioche0/SelfWorld/issues) · [Demander une fonctionnalité](https://github.com/Petite-Brioche0/SelfWorld/issues)
 
 </div>

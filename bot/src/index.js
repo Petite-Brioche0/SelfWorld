@@ -19,6 +19,8 @@ const { StaffPanelService } = require('./services/StaffPanelService');
 const { WelcomeService } = require('./services/WelcomeService');
 const { HubService } = require('./services/HubService');
 const { ThrottleService } = require('./services/ThrottleService');
+const { GuildSetupService } = require('./services/GuildSetupService');
+const { RepairService } = require('./services/RepairService');
 
 const logger = pino({
 	level: process.env.LOG_LEVEL || 'info',
@@ -97,6 +99,9 @@ const client = new Client({
 		policyService.setServices(services);
 		services.welcome = new WelcomeService(client, pool, logger, services);
 		services.hub.setServices(services);
+		services.guildSetup = new GuildSetupService(client, pool, logger);
+		services.repair = new RepairService(client, pool, logger);
+		zoneService.setRepairService(services.repair);
 
 		client.context = {
 			logger,

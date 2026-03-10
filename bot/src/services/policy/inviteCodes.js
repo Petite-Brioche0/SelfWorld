@@ -37,17 +37,6 @@ module.exports = {
 			return true;
 		}
 
-		if (zone.policy !== 'ask' || !['invite', 'both'].includes(zone.ask_join_mode || 'invite')) {
-			await interaction.reply({
-				content: 'Cette zone ne permet pas de générer des codes actuellement.',
-				flags: MessageFlags.Ephemeral
-			}).catch((err) => {
-				if (err?.code === 10062 || err?.rawError?.code === 10062) return;
-				this.logger?.warn({ err, userId: interaction.user.id, zoneId }, 'Failed to send code-not-allowed reply');
-			});
-			return true;
-		}
-
 		const guild = interaction.guild ?? (await this.client.guilds.fetch(zone.guild_id).catch(() => null));
 		const actorMember =
 			interaction.member ?? (guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null);
@@ -89,9 +78,6 @@ module.exports = {
 		await this.ensureSchema();
 		const zone = await this._getZone(zoneId);
 		if (!zone) throw new Error('Zone introuvable');
-		if (zone.policy !== 'ask' || !['invite', 'both'].includes(zone.ask_join_mode || 'invite')) {
-			throw new Error('Cette zone ne permet pas les codes d\'invitation.');
-		}
 
 		const maxAttempts = 5;
 		let code = null;
@@ -129,10 +115,6 @@ module.exports = {
 
 		const zone = await this._getZone(entry.zone_id);
 		if (!zone) throw new Error('Zone introuvable.');
-
-		if (zone.policy !== 'ask' || !['invite', 'both'].includes(zone.ask_join_mode || 'invite')) {
-			throw new Error('Cette zone n\'accepte plus les codes.');
-		}
 
 		if (entry.expires_at && new Date(entry.expires_at) < new Date()) {
 			throw new Error('Ce code a expiré.');

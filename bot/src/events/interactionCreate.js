@@ -41,6 +41,12 @@ function resolveCooldown(interaction) {
 
         if (interaction.isButton()) {
                 const id = interaction.customId || '';
+                if (id.startsWith('repair:')) {
+                        return { key: 'repair.button', seconds: 5 };
+                }
+                if (id.startsWith('setup:')) {
+                        return { key: 'setup.button', seconds: 3 };
+                }
                 if (id.startsWith('hub:')) {
                         return { key: 'hub.button', seconds: 3 };
                 }
@@ -215,8 +221,24 @@ module.exports = {
                                 }
                         }
 
+                        if (interaction.isChannelSelectMenu()) {
+                                const id = customId;
+                                if (id.startsWith('setup:select:')) {
+                                        await services.guildSetup?.handleChannelSelect?.(interaction);
+                                        return;
+                                }
+                        }
+
                         if (interaction.isButton()) {
                                 const id = customId;
+                                if (id.startsWith('repair:')) {
+                                        await services.repair?.handleButton?.(interaction);
+                                        return;
+                                }
+                                if (id.startsWith('setup:configure:')) {
+                                        await services.guildSetup?.handleButton?.(interaction);
+                                        return;
+                                }
                                 if (id.startsWith('hub:')) {
                                         await services.hub?.handleButton?.(interaction);
                                         return;

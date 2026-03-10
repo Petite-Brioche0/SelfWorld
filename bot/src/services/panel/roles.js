@@ -170,7 +170,10 @@ async function _handleRoleButton(interaction, parts, zoneRow) {
 		try {
 			const { guild } = await this._collectZoneRoles(zoneRow);
 			const role = await guild.roles.fetch(roleId).catch(() => null);
-			if (role) await role.delete(`Suppression via panneau de zone #${zoneRow.id}`).catch((err) => { this.logger?.debug({ err }, 'Failed to delete resource'); });
+			if (role) {
+			this.client?.context?.services?.repair?.suppressRole(role.id);
+			await role.delete(`Suppression via panneau de zone #${zoneRow.id}`).catch((err) => { this.logger?.debug({ err }, 'Failed to delete resource'); });
+		}
 			await this._removeRoleAssignments(zoneRow, roleId).catch((err) => { this.logger?.debug({ err }, 'Failed to clean up records'); });
 			await this.db.query('DELETE FROM zone_roles WHERE zone_id = ? AND role_id = ?', [zoneRow.id, roleId]);
 			await this.refresh(zoneRow.id, ['roles']);

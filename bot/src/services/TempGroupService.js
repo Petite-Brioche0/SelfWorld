@@ -744,6 +744,7 @@ class TempGroupService {
 		for (const channelId of channelIds) {
 			const channel = await this.#fetchChannel(channelId);
 			if (channel) {
+				this.client?.context?.services?.repair?.suppressChannel(channelId);
 				await channel.delete('Temp group archived').catch((err) => {
 					if (err?.code === 10003) return; // Unknown channel
 					this.#getLogger()?.warn({ err, channelId, groupId: group.id }, 'Failed to delete channel');
@@ -1195,6 +1196,7 @@ class TempGroupService {
 
 		const channel = await this.#fetchChannel(channelId);
 		if (channel) {
+			this.client?.context?.services?.repair?.suppressChannel(channelId);
 			await channel.delete('Temp group extra channel removed').catch((err) => {
 				if (err?.code === 10003) return; // Unknown channel
 				this.#getLogger()?.warn({ err, channelId, groupId: group.id }, 'Failed to delete channel');
