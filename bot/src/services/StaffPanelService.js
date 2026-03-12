@@ -722,32 +722,25 @@ class StaffPanelService {
 	#buildAnnouncementPayload(announcement) {
 		const embeds = [];
 		const embed = new EmbedBuilder();
-		let hasEmbed = false;
 
 		const contentParts = [];
 		if (announcement.content) contentParts.push(announcement.content);
 
 		if (announcement.embed_title) {
 			embed.setTitle(announcement.embed_title.slice(0, 256));
-			hasEmbed = true;
 		}
 		if (announcement.embed_description) {
 			embed.setDescription(announcement.embed_description.slice(0, 4096));
-			hasEmbed = true;
 		}
 
 		const color = this.#resolveColor(announcement.embed_color) || DEFAULT_COLOR;
 		embed.setColor(color);
-		hasEmbed = true;
 
 		if (announcement.embed_image) {
 			embed.setImage(announcement.embed_image);
-			hasEmbed = true;
 		}
 
-		if (hasEmbed) {
-			embeds.push(embed);
-		}
+		embeds.push(embed);
 
 		const content = contentParts.length ? contentParts.join('\n') : null;
 		return { content, embeds };

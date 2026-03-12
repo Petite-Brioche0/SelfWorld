@@ -21,7 +21,7 @@ const APPROVER_MODES = new Set(['owner', 'members']);
 
 function _sanitizeTags(raw) {
 	if (!raw) return [];
-	let source = raw;
+	let source;
 	if (Array.isArray(raw)) {
 		source = raw;
 	} else if (typeof raw === 'string') {

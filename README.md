@@ -116,18 +116,18 @@ cp .env.example .env
 
 ```env
 # Discord
-DISCORD_TOKEN=your_discord_bot_token_here
-CLIENT_ID=your_discord_client_id_here
-GUILD_ID=your_discord_guild_id_here
+DISCORD_TOKEN=votre_token_discord_ici
+CLIENT_ID=votre_client_id_discord_ici
+GUILD_ID=votre_serveur_id_discord_ici
 
 # Propriétaire du bot
-OWNER_ID=your_discord_user_id_here
+OWNER_ID=votre_id_discord_ici
 
 # Base de données
 DB_HOST=127.0.0.1
 DB_PORT=3306
-DB_USER=selfworld
-DB_PASSWORD=selfworld
+DB_USER=nom_utilisateur
+DB_PASSWORD=mot_de_passe_database
 DB_NAME=selfworld
 
 # Environnement
@@ -142,14 +142,16 @@ mysql -u root -p
 
 ```sql
 CREATE DATABASE selfworld;
-CREATE USER 'selfworld'@'localhost' IDENTIFIED BY 'selfworld';
-GRANT ALL PRIVILEGES ON selfworld.* TO 'selfworld'@'localhost';
+CREATE USER 'nom_utilisateur'@'localhost' IDENTIFIED BY 'mot_de_passe_database';
+GRANT ALL PRIVILEGES ON selfworld.* TO 'nom_utilisateur'@'localhost';
 FLUSH PRIVILEGES;
 EXIT;
 ```
 
+> Remplacez `nom_utilisateur` et `mot_de_passe_database` par les valeurs choisies dans votre `.env`.
+
 ```bash
-mysql -u selfworld -p selfworld < bot/schema.sql
+mysql -u nom_utilisateur -p selfworld < bot/schema.sql
 ```
 
 ### 5. Déployer les commandes slash

@@ -74,7 +74,7 @@ class PanelService {
 		for (const [key, meta] of Object.entries(map)) {
 			const { embed, components } = await meta.render();
 			let msgId = record[meta.column];
-			let message = null;
+			let message;
 
 			if (msgId) {
 				try {

@@ -413,30 +413,25 @@ function _buildEditAcceptModal(request) {
 function _buildAnnouncementPayload(request) {
 	const embeds = [];
 	const embed = new EmbedBuilder();
-	let hasEmbed = false;
 
 	const contentParts = [];
 	if (request.content) contentParts.push(request.content);
 
 	if (request.embed_title) {
 		embed.setTitle(request.embed_title.slice(0, 256));
-		hasEmbed = true;
 	}
 	if (request.embed_description) {
 		embed.setDescription(request.embed_description.slice(0, 4096));
-		hasEmbed = true;
 	}
 
 	const color = this._resolveColor(request.embed_color) || DEFAULT_COLOR;
 	embed.setColor(color);
-	hasEmbed = true;
 
 	if (request.embed_image) {
 		embed.setImage(request.embed_image);
-		hasEmbed = true;
 	}
 
-	if (hasEmbed) embeds.push(embed);
+	embeds.push(embed);
 	const content = contentParts.length ? contentParts.join('\n') : null;
 	return { content, embeds };
 }

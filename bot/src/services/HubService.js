@@ -106,7 +106,7 @@ class HubService {
 		if (!guild) return;
 		await this.ensureSchema();
 
-		let members = null;
+		let members;
 		try {
 			members = await guild.members.fetch();
 		} catch (err) {
@@ -195,7 +195,7 @@ class HubService {
 			this._buildRequestPanelPayload()
 		);
 
-		record = await this._setHubRecord(guildId, member.id, channel.id, joinMessageId, requestMessageId);
+		await this._setHubRecord(guildId, member.id, channel.id, joinMessageId, requestMessageId);
 		return channel;
 	}
 
