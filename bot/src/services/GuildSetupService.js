@@ -159,6 +159,9 @@ class GuildSetupService {
 			});
 		}
 
+		// Acknowledge immediately so Discord doesn't time out while we work
+		await interaction.deferUpdate();
+
 		const channelId = interaction.values[0];
 		const guildId = interaction.guildId;
 
@@ -173,11 +176,9 @@ class GuildSetupService {
 
 		this.logger?.info({ guildId, column, channelId }, 'Setup setting saved');
 
-		// Acknowledge ephemeral selector
-		await interaction.update({ content: '✅ Salon enregistré.', components: [] });
-
-		// Refresh the main setup panel
+		// Refresh the main setup panel, then confirm in the ephemeral
 		await this.#refreshPanel(guildId);
+		await interaction.editReply({ content: '✅ Salon enregistré.', components: [] }).catch(() => {});
 
 		return true;
 	}

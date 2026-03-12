@@ -117,7 +117,7 @@ function buildExplanationPayloads() {
 				name: '1️⃣ Salon de logs anonymes',
 				value:
 					'**Rôle :** Reçoit en temps réel l\'identité réelle de chaque auteur de message anonyme.\n' +
-					'**Accès :** Admins uniquement — ne jamais le rendre visible aux membres.\n' +
+					'**Accès :** Admins uniquement — ce salon doit rester strictement privé.\n' +
 					'**Exemple de nom :** `#admin-logs-anon` ou `#staff-anonymat`',
 				inline: false
 			},
@@ -126,7 +126,7 @@ function buildExplanationPayloads() {
 				value:
 					'**Rôle :** Le bot y poste une carte pour chaque demande de création de zone soumise par un membre. ' +
 					'Le staff peut accepter ou refuser directement depuis ce salon via des boutons.\n' +
-					'**Accès :** Admins ou staff de modération.\n' +
+					'**Accès :** Admins uniquement.\n' +
 					'**Exemple de nom :** `#admin-demandes` ou `#staff-zones`',
 				inline: false
 			},
@@ -135,7 +135,7 @@ function buildExplanationPayloads() {
 				value:
 					'**Rôle :** Le bot y maintient automatiquement un message vivant listant tous les événements actifs du serveur. ' +
 					'Ne supprimez pas ce message — le bot le gère lui-même.\n' +
-					'**Accès :** Staff uniquement, ou semi-public selon votre organisation.\n' +
+					'**Accès :** Admins uniquement.\n' +
 					'**Exemple de nom :** `#admin-events` ou `#tableau-evenements`',
 				inline: false
 			},
@@ -144,7 +144,7 @@ function buildExplanationPayloads() {
 				value:
 					'**Rôle :** Le bot y consigne les actions importantes : arrivées et départs de membres, ' +
 					'création/suppression de zones, changements de permissions, actions administratives.\n' +
-					'**Accès :** Staff uniquement — utile pour l\'audit et la modération.\n' +
+					'**Accès :** Admins uniquement.\n' +
 					'**Exemple de nom :** `#admin-journal` ou `#staff-logs`',
 				inline: false
 			}
@@ -177,9 +177,6 @@ function buildExplanationPayloads() {
 			{
 				name: '💡 Bon à savoir',
 				value:
-					'Si vous avez déjà utilisé la commande `/settings-anonlog-set` par le passé, ' +
-					'le salon correspondant sera déjà détecté et marqué comme configuré dans le panel. ' +
-					'Les autres étapes restent à compléter.\n\n' +
 					'Vous pouvez reconfigurer n\'importe quelle étape à tout moment en recliquant sur son bouton.',
 				inline: false
 			}
