@@ -408,5 +408,5 @@ MIT — voir le fichier LICENSE.
 
 </div>
 <div align="center">
-![Visitor](https://visitor-badge.laobi.icu/badge?page_id=Petite-Brioche0)   
+<img src="https://visitor-badge.laobi.icu/badge?page_id=Petite-Brioche0.SelfWorld" alt="Visitor"/>
 </div>
