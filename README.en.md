@@ -126,8 +126,8 @@ OWNER_ID=your_discord_user_id_here
 # Database
 DB_HOST=127.0.0.1
 DB_PORT=3306
-DB_USER=selfworld
-DB_PASSWORD=selfworld
+DB_USER=user_name
+DB_PASSWORD=database_password
 DB_NAME=selfworld
 
 # Environment
