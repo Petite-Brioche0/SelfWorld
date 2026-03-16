@@ -407,3 +407,6 @@ MIT — voir le fichier LICENSE.
 [Signaler un bug](https://github.com/Petite-Brioche0/SelfWorld/issues) · [Demander une fonctionnalité](https://github.com/Petite-Brioche0/SelfWorld/issues)
 
 </div>
+<div align="center">
+![Visitor](https://visitor-badge.laobi.icu/badge?page_id=Petite-Brioche0)   
+</div>
